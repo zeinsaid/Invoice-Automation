@@ -12,7 +12,7 @@ Numbered record of design decisions: what was decided, why, and what else was co
 | D-004 | Split every PDF into single pages before processing | Accepted |
 | D-005 | Everything is stored per selling piece; invoice units are converted using supplier rules and known pack sizes | Accepted |
 | D-006 | Matching order: learned mapping → barcode → fuzzy name → LLM suggestion (always flagged); confirmed matches feed the mapping | Accepted |
-| D-007 | The per-supplier master Excels are the catalogue, and the tool keeps them up to date | Accepted |
+| D-007 | The per-supplier master Excels are the catalogue, and the tool keeps them up to date | Accepted (to be superseded by D-018 if accepted) |
 | D-008 | One output Excel per invoice, in the exact PowerSoft import format, with zero-quantity rows removed | Accepted |
 | D-009 | Cost rules: per piece, before VAT, after discounts; free goods averaged in; price changes flagged and logged | Accepted |
 | D-010 | Check that each invoice's lines add up to its printed total | Accepted |
@@ -22,7 +22,8 @@ Numbered record of design decisions: what was decided, why, and what else was co
 | D-014 | Real shop data stays local and git-ignored; anything public is synthetic | Accepted |
 | D-015 | Supplier rollout order: Athenites first, then cigarette suppliers, then the rest | Accepted |
 | D-016 | Python 3.12 + uv, src layout; runs from the Deep Freeze ThawSpace drive | Accepted |
-| D-017 | Two-stage output: `To Check` → `Uploaded`; masters and mappings only change once a file is marked uploaded | Proposed |
+| D-017 | Two-stage output: `To Check` → `Uploaded`; masters and mappings only change once a file is marked uploaded | Rejected |
+| D-018 | The PowerSoft item export is the catalogue; one supplier-items table replaces the 23 masters; no approval step | Proposed |
 
 ---
 
@@ -146,7 +147,7 @@ If a factor can't be determined, the line is **flagged, never guessed**.
 
 Only steps 1–2 are trusted automatically. Results from steps 3–4 are written to the output but **flagged** for review until they are confirmed into the mapping. Athenites uses stricter thresholds (D-015).
 
-**The mapping learns from every confirmed match.** A barcode match is written into the mapping straight away. A fuzzy or LLM match is written once the file it appeared in is approved (D-017). Over time, almost every line should resolve at step 1.
+**The mapping learns from every confirmed match.** A barcode match is written into the mapping straight away. A fuzzy or LLM match is stored as *provisional* and promoted to trusted under the rules in D-018. Over time, almost every line should resolve at step 1.
 
 **Alternatives considered.**
 - *Name matching only.* Misses the free, near-perfect barcode signal.
@@ -170,7 +171,7 @@ Only steps 1–2 are trusted automatically. Results from steps 3–4 are written
   - an item bought from a supplier whose file doesn't list it: the row is copied into that supplier's master with the same Item Code
 - Masters always keep quantity 0. Masters are backed up before every write.
 
-**Storage.** The masters live on the shop PC's Deep Freeze ThawSpace drive, which keeps changes across restarts (D-016). Write-back happens only for approved files (D-017).
+**Storage.** The masters live on the shop PC's Deep Freeze ThawSpace drive, which keeps changes across restarts (D-016). (D-017's approval-gated write-back was rejected; see D-018.)
 
 **Reasoning.** It matches the current manual process and keeps the files Zein already knows as the single truth. Write-back is what stops a new item or price change from being "new" again next week.
 
@@ -207,7 +208,8 @@ Only steps 1–2 are trusted automatically. Results from steps 3–4 are written
   - the output gets the new cost and the cell is highlighted
   - the change is written to a price-change report (item, old → new, % change, invoice)
   - the master is updated
-- **Which column PowerSoft reads** (H "Unit Price" vs K "Last Unit Price", currently `=H`) is still being checked by Zein. Until then both are written with the new cost.
+- **Which column PowerSoft reads (confirmed).** The quantity upload reads only field 1 (B, Item Code), field 5 (F, Quantity), field 7 (**H, Unit Price excl. VAT**) and field 9 (J, Line Discount %, always 0). K ("Last Unit Price") is not read, so the tool writes the cost to H only. It is not yet known whether this upload also updates the item's stored cost in PowerSoft. A one-item test is needed; if it doesn't, cost updates need an "Upload Items" pass with "modify" ticked.
+- **Costs are per supplier.** The same item can cost different amounts from different suppliers (e.g. Orbit bottle 30: 2.52 from Athenites vs 3.09 from Andrikian). So a "price change" means a change versus *that supplier's* last price, not versus PowerSoft's single cost (see D-018).
 
 **Reasoning.** Up-to-date costs are a free by-product once the invoice is read anyway. The report turns silent supplier price rises into something visible.
 
@@ -247,12 +249,30 @@ Each run also writes a short report (Excel or text) listing every flag in plain 
 
 **Status:** Accepted · 2026-10-14
 
-**Context.** New products are created in PowerSoft by uploading an Excel row with a new Item Code. Codes are assigned sequentially; the current highest across all masters is **1421** (to be confirmed by Zein). On upload, PowerSoft only reads new codes, unless "modify items" is ticked, which overwrites existing items. The tool must therefore never require that tick.
+**Context.** New products are created in PowerSoft by uploading an Excel row with a new Item Code. Codes are arbitrary unique strings (letters are allowed; gaps don't matter). By convention they are numeric and sequential. The highest in PowerSoft is **1633** per the 2026-10-14 export (staff jumped from 1452 to 1553 at some point). On upload, PowerSoft only reads new codes, unless "modify items" is ticked, which overwrites existing items. The tool must therefore never require that tick.
 
 **Decision.** When an invoice line matches nothing (after D-006):
 - create a full row with Item Code = highest known + 1, filled from the invoice (description, barcode, supplier code/name, cost, VAT %)
-- leave **Retail price empty and red**
-- add the row to the supplier's master so the item isn't "new" again next time
+- fill in a **suggested category** (LLM, from the description, chosen from the existing category list), flagged for checking
+- leave **Retail price empty** (PowerSoft accepts a blank, but then asks the cashier for a price at every sale, which is only meant for things like printing)
+- the whole row is **red** (D-011)
+
+**Fields PowerSoft's "Upload Items" reads** (field numbers start at 0 = column A):
+| Field | Column | Meaning |
+|---|---|---|
+| 1 | B | Item Code |
+| 3 | D | Barcode |
+| 4 | E | Description |
+| 6 | G | Unit of Measure (always PCS) |
+| 7 | H | Unit Price excl. VAT (cost) |
+| 11 | L | Retail price incl. VAT |
+| 12, 13 | M, N | Category code, name |
+| 14, 15 | O, P | Department code, name (unused) |
+| 16, 17 | Q, R | Supplier code, name |
+| 18 | S | Brand (optional) |
+| 19 | T | VAT as a plain number: 0, 5 or 19 |
+
+The import mapping was set up by PowerSoft and can be changed if a better template is ever needed.
 
 **How it is uploaded (confirmed by Zein).** The same output file serves both of PowerSoft's import destinations, in this order:
 1. **Upload Items:** reads item details and skips every Item Code that already exists, so only the new rows are added. It ignores quantity.
@@ -260,9 +280,7 @@ Each run also writes a short report (Excel or text) listing every flag in plain 
 
 No separate new-items file is needed.
 
-**When the master changes.** Only after the file is marked as uploaded (D-017). That way an output that never gets uploaded doesn't leave the master claiming an item PowerSoft doesn't have.
-
-**Item codes that are not in any Excel.** Codes 587, 589, 619, 640–643, 706, 921, 922, 937–939, 1287, 1310, 1356, 1363, 1368, 1369 and 1390 are below the maximum but missing from every master. If any of them are live items in PowerSoft, an invoice for them would wrongly look "new". Zein to check (PowerSoft question list).
+**Avoiding double-issued codes.** The tool keeps a small ledger of codes it has handed out. The next code is max(highest code in the PowerSoft export, highest code in the ledger) + 1, so a code that was issued but never uploaded is simply skipped. Gaps are harmless.
 
 **Reasoning.** It mirrors exactly what Zein does by hand. Leaving the retail price to a human keeps pricing decisions out of the tool.
 
@@ -333,7 +351,7 @@ How it gets onto the shop PC (bundled `.exe` vs. uv + launcher script) is decide
 
 ## D-017: Two-stage output: `To Check` → `Uploaded`; masters and mappings only change once a file is marked uploaded
 
-**Status:** Proposed · 2026-10-14
+**Status:** Rejected · 2026-10-14. Zein: staff will forget to move files, and a forgotten move must never break the system. The problem it solved is handled by D-018 instead.
 
 **Context.** The tool learns from each run: new items, price changes, and confirmed product matches. If it writes those to the masters as soon as it produces an output, an output that is never uploaded (forgotten, or rejected because of a red flag) leaves the masters out of sync with PowerSoft. For example, an item would exist in the Excel but not in the system.
 
@@ -354,3 +372,50 @@ output/
 - *Never write back automatically (Zein updates the masters).* Safest, but the tool would never learn, so the same items and prices would be flagged every week.
 
 **Reasoning.** "I've uploaded this" is the one moment the masters and PowerSoft are known to agree, so it is the right moment to commit. It costs staff one drag-and-drop per file. They already open the folder to check the file, so it fits how they work.
+
+---
+
+## D-018: The PowerSoft item export is the catalogue; one supplier-items table replaces the 23 masters; no approval step
+
+**Status:** Proposed · 2026-10-14 (supersedes D-007 if accepted)
+
+**Context.** Zein exported PowerSoft's full item list (1,525 items) on 2026-10-14. Compared with the 23 master Excels:
+- **194 PowerSoft items are in no master.** That includes ~190 added since the masters were last copied (codes up to **1633**, not 1421).
+- **14 master codes don't exist in PowerSoft at all.**
+- **6 master codes point to a different product in PowerSoft.** For example, Agrotis master 1024 is "SELECT SQUARED EXERCISE BOOK A4", but PowerSoft 1024 is "SMOKING BROWN REGULAR PAPER X 50". Uploading the Agrotis Excel would have added stock to the wrong item.
+- **190 barcodes and 167 descriptions differ.** PowerSoft is right for barcodes (edited there when packaging changes). Most description differences are the master using the **supplier's own invoice wording** (e.g. Athenites `7DAYS SGL CROIS/COCOA VAN/70GR`), which is valuable matching data.
+- **Costs differ per supplier for the same item** (Orbit: Athenites 2.52, Andrikian 3.09). PowerSoft stores only one cost.
+
+Zein's rule: **PowerSoft is the truth** (except perhaps cost). Staff, not Zein, now maintain the Excels, so the copies will keep drifting.
+
+Zein also rejected D-017: staff must not have any step they can forget.
+
+**Decision.**
+1. **Catalogue = the latest PowerSoft export**, dropped into `data/powersoft/`. The tool reads item identity from it: code, description, barcode, VAT, category, home supplier. The tool **never edits item data itself**. To refresh, drop in a new export. Zein can do this remotely, as he did today. The run report warns if the export is more than N days old.
+2. **One supplier-items table** (`data/supplier_items.xlsx`) replaces the 23 masters. One row per (supplier, item) holds:
+   - the supplier's own description and code/barcode for it (the learned mapping, D-006)
+   - pack factor (D-005)
+   - that supplier's last cost and date (D-009)
+   - match status (trusted / provisional)
+
+   It is seeded once from today's masters, after the clashes in `data/reports/powersoft_data_issues.xlsx` are fixed.
+3. **Output files are generated from the catalogue** using the 20-column template, with only the invoiced rows. There is no "copy the master and delete zero rows" step.
+4. **No approval step; staff only use `input/` and `output/`.** Each kind of learning has its own safe rule:
+   - **Costs:** the invoice is the truth whether or not it gets uploaded, so the supplier's last cost updates immediately.
+   - **Barcode matches:** certain, so they are learned immediately.
+   - **Fuzzy/LLM matches:** stored as *provisional* (still yellow on later invoices). They are promoted to *trusted* when the invoice they came from passes the total check (D-010) **and** the implied per-piece cost is within ±15% of the item's known cost, or when Zein confirms them.
+   - **New items:** red every time until the code appears in a PowerSoft export. The code ledger (D-012) means a never-uploaded item can't cause a clash.
+   - **Duplicate scans:** the tool keeps a log of processed invoices (supplier + invoice number). If the same invoice is dropped in twice, it is flagged red instead of producing a second file that would double the stock.
+5. **Manual fallback.** For invoices the tool skips (handwritten, credit notes), it can regenerate a classic per-supplier blank Excel from the catalogue on request, so staff never work from a stale copy.
+
+**Alternatives considered.**
+- *Fix the 23 masters and keep them as the catalogue (D-007).* Rejected: they are copies of PowerSoft maintained by hand in 23 places, and they have already drifted badly. They would drift again.
+- *Two-stage approval folders (D-017).* Rejected by Zein: it relies on staff remembering a step.
+- *SQLite database instead of an Excel table.* Sturdier, but Zein couldn't open and read it as easily. Excel keeps everything inspectable. (Columns are stored as text, so barcodes with leading zeros survive; the tool shows a readable error if the file is open in Excel while it runs.)
+
+**Reasoning.** It removes the drift problem rather than cleaning it up once. Every piece of state has exactly one owner:
+- PowerSoft owns what an item *is*.
+- The supplier-items table owns what the tool has *learned* about suppliers.
+- Invoices own *costs*.
+
+That is what lets the human approval step go away without risk.
