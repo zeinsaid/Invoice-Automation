@@ -1,0 +1,25 @@
+# --- Private shop data: NEVER commit (see D-014) ---
+data/
+input/*
+output/*
+!input/.gitkeep
+!output/.gitkeep
+logs/
+*.log
+
+# Secrets (Azure keys live in .env; .env.example is the committed template)
+.env
+
+# Python / uv
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.venv/
+.pytest_cache/
+
+# Windows / Excel noise
+Thumbs.db
+~$*.xlsx
