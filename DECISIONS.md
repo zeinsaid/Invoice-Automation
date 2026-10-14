@@ -12,7 +12,7 @@ Numbered record of design decisions: what was decided, why, and what else was co
 | D-004 | Split every PDF into single pages before processing | Accepted |
 | D-005 | Everything is stored per selling piece; invoice units are converted using supplier rules and known pack sizes | Accepted |
 | D-006 | Matching order: learned mapping → barcode → fuzzy name → LLM suggestion (always flagged); confirmed matches feed the mapping | Accepted |
-| D-007 | The per-supplier master Excels are the catalogue, and the tool keeps them up to date | Accepted (to be superseded by D-018 if accepted) |
+| D-007 | The per-supplier master Excels are the catalogue, and the tool keeps them up to date | Superseded by D-018 |
 | D-008 | One output Excel per invoice, in the exact PowerSoft import format, with zero-quantity rows removed | Accepted |
 | D-009 | Cost rules: per piece, before VAT, after discounts; free goods averaged in; price changes flagged and logged | Accepted |
 | D-010 | Check that each invoice's lines add up to its printed total | Accepted |
@@ -23,7 +23,8 @@ Numbered record of design decisions: what was decided, why, and what else was co
 | D-015 | Supplier rollout order: Athenites first, then cigarette suppliers, then the rest | Accepted |
 | D-016 | Python 3.12 + uv, src layout; runs from the Deep Freeze ThawSpace drive | Accepted |
 | D-017 | Two-stage output: `To Check` → `Uploaded`; masters and mappings only change once a file is marked uploaded | Rejected |
-| D-018 | The PowerSoft item export is the catalogue; one supplier-items table replaces the 23 masters; no approval step | Proposed |
+| D-018 | The PowerSoft item export is the catalogue; one supplier-items table replaces the 23 masters; no approval step | Accepted |
+| D-019 | One-off PowerSoft cleanup via a reviewed "modify items" upload, before building the tool | Accepted |
 
 ---
 
@@ -159,7 +160,7 @@ Only steps 1–2 are trusted automatically. Results from steps 3–4 are written
 
 ## D-007: The per-supplier master Excels are the catalogue, and the tool keeps them up to date
 
-**Status:** Accepted · 2026-10-14
+**Status:** Superseded by D-018 · 2026-10-14
 
 **Context.** There is one master Excel per supplier (zero quantities) with ~1,400 items in total. The Item Code is PowerSoft's permanent unique ID: never reused, never changed. Barcode, name, cost, supplier and price can change. The same Item Code may appear in several supplier files (e.g. Orbit in Athenites and Andrikian) and that is fine: a quantity upload only uses Item Code, cost and quantity. Each item has one "home" supplier in PowerSoft, which doesn't matter for stock.
 
@@ -377,7 +378,7 @@ output/
 
 ## D-018: The PowerSoft item export is the catalogue; one supplier-items table replaces the 23 masters; no approval step
 
-**Status:** Proposed · 2026-10-14 (supersedes D-007 if accepted)
+**Status:** Accepted · 2026-10-14 (supersedes D-007; amended on point 4, new items, see below)
 
 **Context.** Zein exported PowerSoft's full item list (1,525 items) on 2026-10-14. Compared with the 23 master Excels:
 - **194 PowerSoft items are in no master.** That includes ~190 added since the masters were last copied (codes up to **1633**, not 1421).
@@ -404,7 +405,7 @@ Zein also rejected D-017: staff must not have any step they can forget.
    - **Costs:** the invoice is the truth whether or not it gets uploaded, so the supplier's last cost updates immediately.
    - **Barcode matches:** certain, so they are learned immediately.
    - **Fuzzy/LLM matches:** stored as *provisional* (still yellow on later invoices). They are promoted to *trusted* when the invoice they came from passes the total check (D-010) **and** the implied per-piece cost is within ±15% of the item's known cost, or when Zein confirms them.
-   - **New items:** red every time until the code appears in a PowerSoft export. The code ledger (D-012) means a never-uploaded item can't cause a clash.
+   - **New items:** red the **first** time (D-011). The tool then adds the item to its own *local additions* list, which is merged on top of the export, so later invoices match it without Zein having to re-export. When a fresh export contains the code, the local entry is dropped. (Amended: Zein doesn't want to re-export for every new item.) The code ledger (D-012) means a never-uploaded item can't cause a clash.
    - **Duplicate scans:** the tool keeps a log of processed invoices (supplier + invoice number). If the same invoice is dropped in twice, it is flagged red instead of producing a second file that would double the stock.
 5. **Manual fallback.** For invoices the tool skips (handwritten, credit notes), it can regenerate a classic per-supplier blank Excel from the catalogue on request, so staff never work from a stale copy.
 
@@ -419,3 +420,41 @@ Zein also rejected D-017: staff must not have any step they can forget.
 - Invoices own *costs*.
 
 That is what lets the human approval step go away without risk.
+
+---
+
+## D-019: One-off PowerSoft cleanup via a reviewed "modify items" upload, before building the tool
+
+**Status:** Accepted · 2026-10-14
+
+**Context.** D-018 makes PowerSoft the catalogue, so PowerSoft's own data quality now matters. Every item in the 2026-10-14 export was reviewed (1,525). Problems found:
+- truncated brands (`G.`, `OLD`, `PALL`)
+- wrong brands (Korean noodles under HEINEKEN, Doritos under LAYS)
+- wrong categories (tortillas, oil and cereal under "Ice Cream"; USB cables under "Cleaning")
+- 5% VAT on some beers and wines
+- suppliers assigned at random to recent items
+- typos
+
+The export also **drops `& ' % ( )` from names and rounds costs**, so re-uploading it unchanged would damage good data.
+
+**Decision.** Build a fix file in the 20-column template, for Zein to upload once with "modify items" ticked:
+- Names: punctuation restored from the old Excels, whitespace normalised, Greek look-alike letters replaced, typos fixed.
+- Brands: rebuilt from the item name.
+- Categories, VAT and suppliers: corrected only where the item is inconsistent with every similar item. VAT and supplier changes are marked "PLEASE CONFIRM".
+- Costs: the more precise value from the old Excels is kept where it rounds to the export's value.
+- Excluded: service items (Smoov, printing, cafeteria, plastic bag), non-storable pack items, and junk/test items. Excluded items are not in the file, so "modify" leaves them untouched.
+- Prices: retail prices and costs are never changed. Anomalies (price below cost, duplicates) are listed for Zein instead.
+
+Outputs (git-ignored, `data/powersoft_fix/`):
+- `CHANGED_ITEMS_ONLY.xlsx`: recommended for upload
+- `ALL_ITEMS_FIXED.xlsx`
+- `REVIEW_CHANGES.xlsx`: every change with its reason, plus flags and exclusions
+
+**Alternatives considered.**
+- *Fix by hand in PowerSoft.* Hundreds of edits. Slow and error-prone.
+- *Upload the full file.* It would rewrite 1,000+ unchanged items with export-rounded values, for no benefit. The changed-only file limits the blast radius.
+
+**Safety.** Test-upload 2–3 rows first and check them in PowerSoft:
+- Did `&` and `'` survive?
+- Are any extra barcodes on the item kept? (The template has only one barcode column.)
+- Are cost and retail price unchanged?
