@@ -407,7 +407,8 @@ Zein also rejected D-017: staff must not have any step they can forget.
    - **Fuzzy/LLM matches:** stored as *provisional* (still yellow on later invoices). They are promoted to *trusted* when the invoice they came from passes the total check (D-010) **and** the implied per-piece cost is within ±15% of the item's known cost, or when Zein confirms them.
    - **New items:** red the **first** time (D-011). The tool then adds the item to its own *local additions* list, which is merged on top of the export, so later invoices match it without Zein having to re-export. When a fresh export contains the code, the local entry is dropped. (Amended: Zein doesn't want to re-export for every new item.) The code ledger (D-012) means a never-uploaded item can't cause a clash.
    - **Duplicate scans:** the tool keeps a log of processed invoices (supplier + invoice number). If the same invoice is dropped in twice, it is flagged red instead of producing a second file that would double the stock.
-5. **Manual fallback.** For invoices the tool skips (handwritten, credit notes), it can regenerate a classic per-supplier blank Excel from the catalogue on request, so staff never work from a stale copy.
+5. **Invoices also correct item details.** When an invoice disagrees with the catalogue on more than cost, the run report lists it as a suggested PowerSoft fix (e.g. a different supplier, VAT rate or barcode). The tool doesn't edit item data itself (point 1). Many details in PowerSoft were entered by hand and may be wrong; the invoice is the truth.
+6. **Manual fallback.** For invoices the tool skips (handwritten, credit notes), it can regenerate a classic per-supplier blank Excel from the catalogue on request, so staff never work from a stale copy.
 
 **Alternatives considered.**
 - *Fix the 23 masters and keep them as the catalogue (D-007).* Rejected: they are copies of PowerSoft maintained by hand in 23 places, and they have already drifted badly. They would drift again.
@@ -453,6 +454,13 @@ Outputs (git-ignored, `data/powersoft_fix/`):
 **Alternatives considered.**
 - *Fix by hand in PowerSoft.* Hundreds of edits. Slow and error-prone.
 - *Upload the full file.* It would rewrite 1,000+ unchanged items with export-rounded values, for no benefit. The changed-only file limits the blast radius.
+
+**Zein's answers (2026-10-14).**
+- `&` and `'` are stored in PowerSoft: every item was created by Excel upload, so the export is what strips them.
+- Service items (Smoov, printing, cafeteria, plastic bag) and multipacks stay excluded.
+- Items added after the masters (codes 1422+) were entered by a new staff member and are the most error-prone. They may be corrected at discretion, with **Athenites as the default supplier** when the real one is unclear (it may later turn out to be, e.g., Andrikian; invoices will settle it, see D-018 point 5).
+- Palestina drinks go under the same supplier as Almarai (FINERICO).
+- Brand is low priority; categories are internal to the shop.
 
 **Safety.** Test-upload 2–3 rows first and check them in PowerSoft:
 - Did `&` and `'` survive?
