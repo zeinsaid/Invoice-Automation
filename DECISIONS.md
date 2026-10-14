@@ -308,7 +308,8 @@ When it recognises one of these, it skips the page and says so in the report ins
 
 **Decision.**
 - All real data lives under `data/`, which is git-ignored:
-  - `masters/`: supplier Excels
+  - `powersoft/`: item export, code tables, master item list
+  - `reference/`: legacy supplier lists (from the deleted per-supplier Excels)
   - `samples/`: real invoices
   - later: mappings and logs
 
@@ -399,7 +400,7 @@ Zein also rejected D-017: staff must not have any step they can forget.
    - that supplier's last cost and date (D-009)
    - match status (trusted / provisional)
 
-   It is seeded once from today's masters, after the clashes in `data/reports/powersoft_data_issues.xlsx` are fixed.
+   It is seeded once from `data/reference/legacy_supplier_lists.xlsx`, which was extracted from the old masters before they were deleted.
 3. **Output files are generated from the catalogue** using the 20-column template, with only the invoiced rows. There is no "copy the master and delete zero rows" step.
 4. **No approval step; staff only use `input/` and `output/`.** Each kind of learning has its own safe rule:
    - **Costs:** the invoice is the truth whether or not it gets uploaded, so the supplier's last cost updates immediately.
@@ -446,7 +447,7 @@ The export also **drops `& ' % ( )` from names and rounds costs**, so re-uploadi
 - Excluded: service items (Smoov, printing, cafeteria, plastic bag), non-storable pack items, and junk/test items. Excluded items are not in the file, so "modify" leaves them untouched.
 - Prices: retail prices and costs are never changed. Anomalies (price below cost, duplicates) are listed for Zein instead.
 
-Outputs (git-ignored, `data/powersoft_fix/`):
+Outputs (git-ignored, `data/powersoft_fix/`, deleted after the upload on 2026-10-14):
 - `CHANGED_ITEMS_ONLY.xlsx`: recommended for upload
 - `ALL_ITEMS_FIXED.xlsx`
 - `REVIEW_CHANGES.xlsx`: every change with its reason, plus flags and exclusions
@@ -466,3 +467,8 @@ Outputs (git-ignored, `data/powersoft_fix/`):
 - Did `&` and `'` survive?
 - Are any extra barcodes on the item kept? (The template has only one barcode column.)
 - Are cost and retail price unchanged?
+
+**Result (verified against the 2026-10-14 CSV export).**
+- Applied: names, brands, categories, suppliers and the retail price fix.
+- Not applied: **VAT**. "Upload Items" with modify does not change the VAT of existing items. The 11 VAT corrections are being made by hand, so VAT fixes always need a manual step in PowerSoft.
+- Removed: the old per-supplier masters, replaced by `data/powersoft/MASTER_ITEM_LIST.xlsx` and `data/reference/legacy_supplier_lists.xlsx`.

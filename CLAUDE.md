@@ -43,7 +43,11 @@ It's also my hands-on prep for the **Microsoft AI-103** exam (Azure AI Apps and 
 ## What's in the folder
 
 All real shop data is under `data/` (git-ignored, never commit it):
-- `data/masters/<Supplier>.xlsx`: one master Excel per supplier (PowerSoft's 20-column import format, quantities kept at 0). Study their structure before proposing anything.
+- `data/powersoft/`: PowerSoft is the source of truth for items (D-018).
+  - `items_export_<date>.csv`: the latest item export, encoded cp1253. The export strips `& ' % ( )` from names.
+  - `categories.xlsx`, `suppliers.xlsx`: code tables.
+  - `MASTER_ITEM_LIST.xlsx`: every item in the 20-column import format, for reference.
+- `data/reference/legacy_supplier_lists.xlsx`: which items each supplier sold us, at what price, under what name. Extracted from the old per-supplier Excels (now deleted); seed data for the supplier-items table.
 - `data/samples/`: real past invoices (image-only scans, some with several suppliers merged in one PDF). Use them to judge layouts, variations and edge cases.
 - Shop PC: everything the tool writes (masters, mappings, logs, input/output) lives on the Deep Freeze ThawSpace drive, never on C: (D-016).
 - There's no separate "expected output" file. The expected output is the same supplier Excel with the quantity column (and anything else I specify) filled in correctly.
