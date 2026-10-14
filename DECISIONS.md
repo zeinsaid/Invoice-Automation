@@ -472,3 +472,9 @@ Outputs (git-ignored, `data/powersoft_fix/`, deleted after the upload on 2026-10
 - Applied: names, brands, categories, suppliers and the retail price fix.
 - Not applied: **VAT**. "Upload Items" with modify does not change the VAT of existing items. The 11 VAT corrections are being made by hand, so VAT fixes always need a manual step in PowerSoft.
 - Removed: the old per-supplier masters, replaced by `data/powersoft/MASTER_ITEM_LIST.xlsx` and `data/reference/legacy_supplier_lists.xlsx`.
+
+**Correction (2026-10-14).** It is PowerSoft itself, not the export, that strips `& ' % ( )` from item names on save (the uploaded names with `&`/`'` came back without them). Costs are stored to 2 decimals. So the export is an exact copy of what PowerSoft holds. Two consequences for the tool:
+- When matching names, the tool must ignore those characters on both sides.
+- Rows it writes don't need them.
+
+The 11 VAT corrections were made by hand and verified in the second 2026-10-14 export. `MASTER_ITEM_LIST.xlsx` is rebuilt from that export exactly as exported.

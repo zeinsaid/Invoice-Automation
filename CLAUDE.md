@@ -44,7 +44,7 @@ It's also my hands-on prep for the **Microsoft AI-103** exam (Azure AI Apps and 
 
 All real shop data is under `data/` (git-ignored, never commit it):
 - `data/powersoft/`: PowerSoft is the source of truth for items (D-018).
-  - `items_export_<date>.csv`: the latest item export, encoded cp1253. The export strips `& ' % ( )` from names.
+  - `items_export_<date>.csv`: the latest item export, encoded cp1253. PowerSoft itself strips `& ' % ( )` from item names when it saves them, and stores costs to 2 decimals.
   - `categories.xlsx`, `suppliers.xlsx`: code tables.
   - `MASTER_ITEM_LIST.xlsx`: every item in the 20-column import format, for reference.
 - `data/reference/legacy_supplier_lists.xlsx`: which items each supplier sold us, at what price, under what name. Extracted from the old per-supplier Excels (now deleted); seed data for the supplier-items table.
