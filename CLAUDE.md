@@ -45,7 +45,7 @@ It's also my hands-on prep for the **Microsoft AI-103** exam (Azure AI Apps and 
 All real shop data is under `data/` (git-ignored, never commit it):
 - `data/masters/<Supplier>.xlsx`: one master Excel per supplier (PowerSoft's 20-column import format, quantities kept at 0). Study their structure before proposing anything.
 - `data/samples/`: real past invoices (image-only scans, some with several suppliers merged in one PDF). Use them to judge layouts, variations and edge cases.
-- `data/reference/UPSTAIRS.xlsx`: old stock from the previous owner. Never ordered, so ignore it for matching. Its costs are `=retail*0.7` estimates.
+- Shop PC: everything the tool writes (masters, mappings, logs, input/output) lives on the Deep Freeze ThawSpace drive, never on C: (D-016).
 - There's no separate "expected output" file. The expected output is the same supplier Excel with the quantity column (and anything else I specify) filled in correctly.
 - `DECISIONS.md` holds the decision log. Read it before proposing changes.
 

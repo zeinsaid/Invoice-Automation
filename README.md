@@ -35,8 +35,9 @@ output/ (one Excel per invoice + a short report)  → a person checks it, then u
 
 1. Put the scanned invoices into `input/`.
 2. Double-click **Process Invoices**.
-3. When it says **Done**, open `output/`, check the files against the paper invoices, and upload them to PowerSoft.
-4. If it says **Something went wrong**, or a file has **red** cells, contact Zein.
+3. When it says **Done**, open `output/1 - To Check`, check each file against its paper invoice, and upload it to PowerSoft.
+4. After uploading a file, move it into `output/2 - Uploaded`.
+5. If it says **Something went wrong**, or a file has **red** cells, don't upload it. Contact Zein.
 
 ## For developers
 

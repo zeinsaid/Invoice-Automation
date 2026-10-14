@@ -10,18 +10,19 @@ Numbered record of design decisions: what was decided, why, and what else was co
 | D-002 | Double-click launcher with `input/` and `output/` folders; staff see only "Done" or "Contact Zein" | Accepted |
 | D-003 | Azure Document Intelligence for extraction, not a vision LLM | Accepted |
 | D-004 | Split every PDF into single pages before processing | Accepted |
-| D-005 | Everything is stored per selling piece; invoice units are converted using supplier rules and known pack sizes | Proposed |
-| D-006 | Matching order: learned mapping → barcode → fuzzy name → LLM suggestion (always flagged) | Proposed |
+| D-005 | Everything is stored per selling piece; invoice units are converted using supplier rules and known pack sizes | Accepted |
+| D-006 | Matching order: learned mapping → barcode → fuzzy name → LLM suggestion (always flagged); confirmed matches feed the mapping | Accepted |
 | D-007 | The per-supplier master Excels are the catalogue, and the tool keeps them up to date | Accepted |
-| D-008 | One output Excel per invoice, in the exact PowerSoft import format, with zero-quantity rows removed | Proposed |
+| D-008 | One output Excel per invoice, in the exact PowerSoft import format, with zero-quantity rows removed | Accepted |
 | D-009 | Cost rules: per piece, before VAT, after discounts; free goods averaged in; price changes flagged and logged | Accepted |
 | D-010 | Check that each invoice's lines add up to its printed total | Accepted |
-| D-011 | Flag, don't guess: colour-coded cells plus a run report | Proposed |
+| D-011 | Flag, don't guess: colour-coded cells plus a run report; new items are always red | Accepted |
 | D-012 | Unknown products become new item rows with the next item code; retail price left for a human | Accepted |
 | D-013 | Out of scope: credit notes/returns, handwritten invoices, automatic upload | Accepted |
 | D-014 | Real shop data stays local and git-ignored; anything public is synthetic | Accepted |
 | D-015 | Supplier rollout order: Athenites first, then cigarette suppliers, then the rest | Accepted |
-| D-016 | Python 3.12 + uv, src layout | Accepted |
+| D-016 | Python 3.12 + uv, src layout; runs from the Deep Freeze ThawSpace drive | Accepted |
+| D-017 | Two-stage output: `To Check` → `Uploaded`; masters and mappings only change once a file is marked uploaded | Proposed |
 
 ---
 
@@ -98,14 +99,15 @@ My current expectation: start with `prebuilt-invoice` for supplier and totals, u
 **Alternatives considered.**
 - *Require one invoice per PDF.* Staff will be asked to do this, but the tool shouldn't rely on it.
 - *Send whole PDFs to DI.* Breaks on mixed PDFs and on the F0 2-page cap.
+- *Keep PDFs whole and only split when longer than 2 pages* (Zein was fine with either). Rejected: a 2-page PDF can still hold two suppliers, so per-page supplier detection is needed regardless. Splitting costs nothing extra, because DI bills per page either way.
 
-**Reasoning.** The page is the only unit that is reliably "one supplier". Splitting costs nothing (it happens locally) and handles mixed scans and the free-tier limit in one go.
+**Reasoning.** The page is the only unit that is reliably "one supplier". Splitting costs nothing (it happens locally) and handles mixed scans and the free-tier limit in one go. Invoices longer than 2 pages are rare (big Athenites bulk orders), but they are handled by the same path.
 
 ---
 
 ## D-005: Everything is stored per selling piece; invoice units are converted using supplier rules and known pack sizes
 
-**Status:** Proposed · 2026-10-14 (the requirement is agreed; the mechanism awaits confirmation once we have more invoice samples)
+**Status:** Accepted · 2026-10-14 (Zein supplies the rules per supplier as samples come in)
 
 **Context.** PowerSoft quantity and cost are always per *selling piece*: whatever is scanned at the till (one cigarette pack, one Kinder Happy Hippo 10-pack, one 500 ml water). Invoices use different units:
 - Cassandra: `FACT 10 × QTY 6` = 60 packs; price is per carton (39.37 → 3.937/pack).
@@ -126,11 +128,13 @@ If a factor can't be determined, the line is **flagged, never guessed**.
 
 **Reasoning.** Unit conversion is the main source of silent quantity errors (1 instead of 24). Making it explicit per supplier and per item turns it into data that can be checked and grows over time, instead of logic hidden in code.
 
+**Known risk (deferred).** Supplier conventions can drift. For example, the same Hell energy drink might be billed as one 24-pack on one invoice and as 24 cans on another. Mitigations to design later: compare the converted line against the printed line total (D-010), and flag a line when its implied per-piece cost is far from the master cost.
+
 ---
 
 ## D-006: Matching order: learned mapping → barcode → fuzzy name → LLM suggestion (always flagged)
 
-**Status:** Proposed · 2026-10-14 (barcode-first with fuzzy fallback is agreed; the full order awaits confirmation)
+**Status:** Accepted · 2026-10-14
 
 **Context.** Invoice names never exactly match our item names. A check of the samples found barcodes on 5 of 6 suppliers. 32 of 34 non-Cassandra invoice barcodes match our Excel exactly. Cassandra prints **carton** barcodes (0 of 25 match), because our system stores the barcode of the individual piece.
 
@@ -141,6 +145,8 @@ If a factor can't be determined, the line is **flagged, never guessed**.
 4. **LLM suggestion** for leftovers.
 
 Only steps 1–2 are trusted automatically. Results from steps 3–4 are written to the output but **flagged** for review until they are confirmed into the mapping. Athenites uses stricter thresholds (D-015).
+
+**The mapping learns from every confirmed match.** A barcode match is written into the mapping straight away. A fuzzy or LLM match is written once the file it appeared in is approved (D-017). Over time, almost every line should resolve at step 1.
 
 **Alternatives considered.**
 - *Name matching only.* Misses the free, near-perfect barcode signal.
@@ -164,7 +170,7 @@ Only steps 1–2 are trusted automatically. Results from steps 3–4 are written
   - an item bought from a supplier whose file doesn't list it: the row is copied into that supplier's master with the same Item Code
 - Masters always keep quantity 0. Masters are backed up before every write.
 
-**Open question.** If Deep Freeze is active, every write to the masters (and the mapping file) is lost on restart. Storage must be on a thawed drive or synced folder. To be confirmed.
+**Storage.** The masters live on the shop PC's Deep Freeze ThawSpace drive, which keeps changes across restarts (D-016). Write-back happens only for approved files (D-017).
 
 **Reasoning.** It matches the current manual process and keeps the files Zein already knows as the single truth. Write-back is what stops a new item or price change from being "new" again next week.
 
@@ -172,7 +178,7 @@ Only steps 1–2 are trusted automatically. Results from steps 3–4 are written
 
 ## D-008: One output Excel per invoice, in the exact PowerSoft import format, with zero-quantity rows removed
 
-**Status:** Proposed · 2026-10-14
+**Status:** Accepted · 2026-10-14
 
 **Context.** PowerSoft rejects rows with quantity 0. It doesn't care about row order, formulas or file names. When uploading, it asks which supplier and which invoice number the upload belongs to.
 
@@ -182,7 +188,9 @@ Only steps 1–2 are trusted automatically. Results from steps 3–4 are written
 - *One file per supplier per run (merge same-day invoices).* PowerSoft allows it, but it breaks the one-to-one link between paper and file that staff use to check their work and that the invoice-total check (D-010) relies on.
 - *One combined Excel for all invoices.* Desirable later (one upload per run), but needs per-row supplier and invoice number support in PowerSoft. Zein is checking. Revisit before the end of the project.
 
-**Reasoning.** One paper invoice → one file → one upload is the easiest flow for staff to check, and it keeps supplier spend attributable in PowerSoft.
+**Reasoning.** One paper invoice → one file → one upload is the easiest flow for staff to check, and it keeps supplier spend attributable in PowerSoft. Multiple invoices from one supplier on the same day are rare; mostly it is Athenites, when there are morning and afternoon runs. Zein used to merge those only to save time, and the tool removes that need.
+
+**Totals live in the report, not the upload file.** A "total" row in the Excel would look like an item row with no Item Code, and that could break the import. The run report shows each file's computed total next to the invoice's printed total instead.
 
 ---
 
@@ -215,14 +223,16 @@ Only steps 1–2 are trusted automatically. Results from steps 3–4 are written
 
 ---
 
-## D-011: Flag, don't guess: colour-coded cells plus a run report
+## D-011: Flag, don't guess: colour-coded cells plus a run report; new items are always red
 
-**Status:** Proposed · 2026-10-14
+**Status:** Accepted · 2026-10-14
 
 **Decision.**
 - **Yellow:** check against the paper. Low DI confidence, or a fuzzy/LLM match.
 - **Orange:** cost changed (D-009).
-- **Red:** do not upload; contact Zein. Unmatched product, new item missing a retail price, unknown pack factor, or invoice total mismatch.
+- **Red:** do not upload; contact Zein. Unmatched product, **any new item** (even with a retail price filled in), unknown pack factor, or invoice total mismatch.
+
+**Why new items are always red.** Item Codes are permanent (D-007). If the tool wrongly decides an existing product is "new", uploading it creates a duplicate item that can never be deleted, only repurposed. A human must confirm every new item before it reaches PowerSoft.
 
 Each run also writes a short report (Excel or text) listing every flag in plain language. A clean file has no colours.
 
@@ -244,9 +254,15 @@ Each run also writes a short report (Excel or text) listing every flag in plain 
 - leave **Retail price empty and red**
 - add the row to the supplier's master so the item isn't "new" again next time
 
-**Open questions.**
-- Can new-item rows go in the same upload as the quantity rows, or do they need a separate file?
-- Should the master be updated immediately, or only once the upload is confirmed? (If staff never upload, the master claims an item that PowerSoft doesn't have.)
+**How it is uploaded (confirmed by Zein).** The same output file serves both of PowerSoft's import destinations, in this order:
+1. **Upload Items:** reads item details and skips every Item Code that already exists, so only the new rows are added. It ignores quantity.
+2. **Upload invoice (quantities):** run only after step 1. It fails for the *whole* file if any Item Code is unknown.
+
+No separate new-items file is needed.
+
+**When the master changes.** Only after the file is marked as uploaded (D-017). That way an output that never gets uploaded doesn't leave the master claiming an item PowerSoft doesn't have.
+
+**Item codes that are not in any Excel.** Codes 587, 589, 619, 640–643, 706, 921, 922, 937–939, 1287, 1310, 1356, 1363, 1368, 1369 and 1390 are below the maximum but missing from every master. If any of them are live items in PowerSoft, an invoice for them would wrongly look "new". Zein to check (PowerSoft question list).
 
 **Reasoning.** It mirrors exactly what Zein does by hand. Leaving the retail price to a human keeps pricing decisions out of the tool.
 
@@ -275,8 +291,9 @@ When it recognises one of these, it skips the page and says so in the report ins
 - All real data lives under `data/`, which is git-ignored:
   - `masters/`: supplier Excels
   - `samples/`: real invoices
-  - `reference/`: UPSTAIRS, which is never ordered
   - later: mappings and logs
+
+  The old UPSTAIRS sheet (previous owner's stock, never re-ordered) was deleted. Its codes (1123–1178) are all below the current maximum, so removing it can't cause a code collision.
 - `input/` and `output/` contents are git-ignored too.
 - Azure keys live in `.env` (git-ignored); `.env.example` is the committed template.
 - Anything shown publicly (README, tests, demo) uses anonymised or synthetic invoices and Excels.
@@ -298,9 +315,11 @@ When it recognises one of these, it skips the page and says so in the report ins
 
 ---
 
-## D-016: Python 3.12 + uv, src layout
+## D-016: Python 3.12 + uv, src layout; runs from the Deep Freeze ThawSpace drive
 
 **Status:** Accepted · 2026-10-14
+
+**Shop PC storage.** C: may be frozen by Deep Freeze, which undoes every change on restart. The tool, its data (masters, mappings, logs) and the `input/`/`output/` folders live on the ThawSpace drive, where the master Excels already sit. Nothing the tool needs to keep may be written to C:.
 
 **Decision.** Python 3.12, with dependencies managed by `uv` (as in Shop Assistant) and code in `src/invoice_automation/`. Expected libraries:
 - `openpyxl`: read and write Excel while keeping formatting
@@ -308,4 +327,30 @@ When it recognises one of these, it skips the page and says so in the report ins
 - `azure-ai-documentintelligence`: the official DI SDK
 - `rapidfuzz`: fuzzy matching
 
-How it gets onto the shop PC (bundled `.exe` vs. uv + launcher script) is decided once Deep Freeze is clarified.
+How it gets onto the shop PC (bundled `.exe` vs. uv + launcher script) is decided when we reach deployment. Either way it lives on the ThawSpace drive.
+
+---
+
+## D-017: Two-stage output: `To Check` → `Uploaded`; masters and mappings only change once a file is marked uploaded
+
+**Status:** Proposed · 2026-10-14
+
+**Context.** The tool learns from each run: new items, price changes, and confirmed product matches. If it writes those to the masters as soon as it produces an output, an output that is never uploaded (forgotten, or rejected because of a red flag) leaves the masters out of sync with PowerSoft. For example, an item would exist in the Excel but not in the system.
+
+**Decision.**
+```
+output/
+  1 - To Check/   ← the tool writes new files here
+  2 - Uploaded/   ← staff move a file here after uploading it to PowerSoft
+```
+- The tool **stages** every change (new items, cost changes, new mappings) alongside each output file. Nothing touches the masters yet.
+- At the start of every run, the tool first processes `2 - Uploaded/`. It commits each file's staged changes to the masters and the mapping, then archives the file and its matching scan.
+- The commit reads the file **as it is in `Uploaded/`**. If Zein corrected a wrong match or quantity before uploading, the correction is what gets learned.
+- A new item that is still waiting in `To Check/` reserves its Item Code. Later runs match against it and don't hand out the same code twice.
+
+**Alternatives considered.**
+- *Write to the masters immediately.* Simplest, but creates the out-of-sync problem above.
+- *An "Approve" button or second launcher.* Moving a file between two folders is already the approval, with nothing new to learn.
+- *Never write back automatically (Zein updates the masters).* Safest, but the tool would never learn, so the same items and prices would be flagged every week.
+
+**Reasoning.** "I've uploaded this" is the one moment the masters and PowerSoft are known to agree, so it is the right moment to commit. It costs staff one drag-and-drop per file. They already open the folder to check the file, so it fits how they work.
