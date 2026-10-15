@@ -26,7 +26,7 @@ Numbered record of design decisions: what was decided, why, and what else was co
 | D-018 | The PowerSoft item export is the catalogue; one supplier-items table replaces the 23 masters; no approval step | Accepted |
 | D-019 | One-off PowerSoft cleanup via a reviewed "modify items" upload, before building the tool | Accepted |
 | D-020 | Athenites profile: barcode = purchase unit, VAT-inclusive amounts, pack factor learned per barcode | Accepted |
-| D-021 | Use `prebuilt-layout` only; the supplier profile interprets the table | Accepted |
+| D-021 | Use `prebuilt-layout` only; the supplier profile interprets the table | Accepted (amended 2026-10-15) |
 
 ---
 
@@ -568,3 +568,7 @@ The 11 VAT corrections were made by hand and verified in the second 2026-10-14 e
 - *Custom extraction model.* Needs about 5 labelled samples per layout and adds training and upkeep. It isn't needed while layout reads everything correctly.
 
 **Reasoning.** Layout reads what's printed and makes no guesses, and its confidence actually goes down on damaged cells. Interpreting columns in our own code keeps every supplier's rules visible and testable. One request per page also halves free-tier usage.
+
+**Amendment (2026-10-15): arithmetic beats confidence.** When a line's own arithmetic checks out (quantity × price = line amount, D-010 amendment), those numbers are treated as correctly read whatever their confidence score, and get no "hard to read" flag. Confidence is only used for numbers no check covers (e.g. Cassandra's FACT column). Barcodes are vouched for by their check digit and names go through matching, so neither gets a confidence flag.
+
+*Why:* on Cassandra, confidence put about 40 yellow flags on cells that were all correct (product names, `0`s in the SUB column). A passing check means all three numbers were read correctly: for it to pass with wrong numbers, the misreads would have to cancel out exactly, which is practically impossible. So the check is a far stronger signal than any single cell's score.
