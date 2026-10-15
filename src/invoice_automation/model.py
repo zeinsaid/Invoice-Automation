@@ -25,6 +25,7 @@ class InvoiceLine:
     amount_excl_vat: float  # what this line cost, after discounts, before VAT
     vat_rate: int  # 0, 5 or 19
     list_price_excl_vat: float | None = None  # price of one invoice unit before discounts (for pack-size checks)
+    pieces_known: bool = False  # True if the invoice printed the pack factor and quantity is already in pieces
     flags: list[Flag] = field(default_factory=list)
 
 

@@ -234,6 +234,8 @@ Only steps 1–2 are trusted automatically. Results from steps 3–4 are written
 
 **Amendment (2026-10-15): missing total = possibly missing page.** The tool always computes the total itself from the lines. If no printed total is found (e.g. page 2 of a long Athenites invoice was not scanned, as on the first sample), the invoice is flagged **red**: "Total not found. Were all pages scanned?". Page 2 may hold more lines, so the file may be incomplete.
 
+**Amendment (2026-10-15): every line is checked too.** Where the invoice prints quantity, unit price and line amount, the tool checks quantity × price (+ discount) = line amount, allowing 2 cents for printed rounding. A mismatch flags that line **yellow** ("check against the paper"). This catches a misread quantity on the exact line, even when the invoice total is missing (a page wasn't scanned) or two errors cancel out in the total. Every sample supplier prints all three numbers.
+
 ---
 
 ## D-011: Flag, don't guess: colour-coded cells plus a run report; new items are always red
@@ -252,7 +254,7 @@ Each run also writes a short report (Excel or text) listing every flag in plain 
 **Alternatives considered.**
 - *Separate "review" sheet only.* Rejected: staff look at the main sheet, so the flag must be on the cell itself.
 
-**Reasoning.** Staff aren't expected to fix anything, only to recognise "red = call Zein", "yellow/orange = compare with the paper". Open: PowerSoft must accept files that carry cell colours (very likely; formatting isn't data). To be checked on the first test upload.
+**Reasoning.** Staff aren't expected to fix anything, only to recognise "red = call Zein", "yellow/orange = compare with the paper". PowerSoft accepts files with coloured cells (confirmed by Zein 2026-10-15: highlighted files have been uploaded before). Cell comments (hover notes) are still to be checked on the first test upload.
 
 ---
 
@@ -515,7 +517,7 @@ The 11 VAT corrections were made by hand and verified in the second 2026-10-14 e
 - **VAT letters** map to rates in the supplier profile (B = 5%, D = 19%). An unknown letter is flagged red.
 - **Lines with the same barcode are summed** before output.
 - **Pack-factor suggestion** for a barcode not yet learned: divide the cost per invoice unit (before VAT) by the item's known cost per piece.
-  - Within ±10% of a common pack size (4, 6, 9, 12, 24) → that size is suggested, **yellow**.
+  - Within ±10% of a common pack size (3, 4, 6, 9, 12, 24) → that size is suggested, **yellow**. (3 added 2026-10-15: Kinder Bueno comes in 3-packs and is sold as single bars.)
   - Any other whole number (e.g. 13) → suggested, **red**.
   - Not near a whole number → **red**, with no suggestion.
 

@@ -2,7 +2,7 @@
 
 Turns scanned supplier invoices into PowerSoft-ready Excel files for **The Plug Business Center**, a 24/7 print shop and mini-market in Nicosia, Cyprus.
 
-> **Status:** early development. Athenites invoices work end to end; other suppliers come next (D-015). The design is recorded in [DECISIONS.md](DECISIONS.md).
+> **Status:** early development. Athenites and the cigarette suppliers (Cassandra, Cosmos, Fereos) work end to end; the rest come next (D-015). The design is recorded in [DECISIONS.md](DECISIONS.md).
 
 ## The problem
 

@@ -69,3 +69,11 @@ def test_unknown_product_is_new(tmp_path):
 
 def test_name_key_ignores_characters_powersoft_strips():
     assert name_key("M&M'S (PEANUT) 45G") == name_key("MMS PEANUT 45 G")
+
+
+def test_misread_letter_still_matches(tmp_path):
+    items = catalogue()
+    items.items["4"] = Item("4", "L&M BLUE LABEL", "76239366", 19, 3.3, 4.3, SUPPLIER, "", "", True)
+    m = match_line(line("L&M BLUE ABEL", "7623900203895", 10, 3.3), SUPPLIER, "INV1", items,
+                   SupplierItems([], tmp_path / "t.xlsx"))
+    assert (m.item_code, m.method) == ("4", "fuzzy")

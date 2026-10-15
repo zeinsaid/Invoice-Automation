@@ -88,32 +88,76 @@ def _cell_confidence(cell: dict, words) -> float | None:
     return min(confs) if confs else None
 
 
-def find_table(result: dict, headers: dict[str, str], required: str) -> list[dict[str, Cell]]:
-    """Find the table whose header row contains `required`, and return its data rows.
+# Greek capitals that look like Latin ones. OCR mixes them freely in headers ('TIMH' vs 'ΤΙΜΗ'),
+# so headers are compared after turning every look-alike into its Latin letter.
+_LOOKALIKES = str.maketrans("ΑΒΕΗΙΚΜΝΟΡΤΥΧΖ", "ABEHIKMNOPTYXZ")
 
-    `headers` maps printed header text (lower case) to our field names. Each returned row maps
-    field name -> Cell. Rows above and including the header row are skipped.
+
+def latinise(text: str) -> str:
+    return clean_text(text).upper().translate(_LOOKALIKES)
+
+
+def _grid(table: dict) -> dict[int, dict[int, dict]]:
+    grid: dict[int, dict[int, dict]] = {}
+    for cell in table["cells"]:
+        grid.setdefault(cell["rowIndex"], {})[cell["columnIndex"]] = cell
+    return grid
+
+
+def _header_columns(row: dict[int, dict], columns: dict[str, str]) -> dict[int, str]:
+    """Map column index -> field name for a header row. Each field is used at most once, and
+    fields are tried in the order given, so put more specific patterns first."""
+    found: dict[int, str] = {}
+    for c in sorted(row):
+        text = latinise(row[c]["content"])
+        for name, pattern in columns.items():
+            if name not in found.values() and re.search(pattern, text):
+                found[c] = name
+                break
+    return found
+
+
+def find_table(result: dict, columns: dict[str, str], required: str) -> list[dict[str, Cell]]:
+    """Find the line-item table and return its data rows as {field name: Cell}.
+
+    `columns` maps our field names to regex patterns, matched against the latinised header text.
+    The table is the first one whose header row has the `required` field. A table split by a page
+    break (e.g. Cosmos prints two pages on one sheet) continues in later tables with the same
+    number of columns and no header row of their own; their rows are added too.
     """
     words = _word_spans(result)
-    for table in result.get("tables", []):
-        grid: dict[int, dict[int, dict]] = {}
-        for cell in table["cells"]:
-            grid.setdefault(cell["rowIndex"], {})[cell["columnIndex"]] = cell
-        for header_row in sorted(grid):
-            names = {c: headers.get(clean_text(cell["content"]).lower()) for c, cell in grid[header_row].items()}
-            if required in names.values():
-                break
-        else:
-            continue
-        columns = {c: name for c, name in names.items() if name}
-        rows = []
+    tables = result.get("tables", [])
+    for t_index, table in enumerate(tables):
+        grid = _grid(table)
+        header_row, mapping = None, {}
         for r in sorted(grid):
-            if r <= header_row:
+            mapping = _header_columns(grid[r], columns)
+            if required in mapping.values():
+                header_row = r
+                break
+        if header_row is None:
+            continue
+        rows = _rows(grid, mapping, words, after=header_row)
+        for later in tables[t_index + 1:]:
+            if later["columnCount"] != table["columnCount"]:
                 continue
-            row = {}
-            for c, name in columns.items():
-                cell = grid[r].get(c)
-                row[name] = Cell(clean_text(cell["content"]), _cell_confidence(cell, words)) if cell else Cell("", None)
-            rows.append(row)
+            later_grid = _grid(later)
+            first = later_grid.get(min(later_grid), {}) if later_grid else {}
+            if len(_header_columns(first, columns)) >= 3:
+                break  # another headed table, not a continuation
+            rows += _rows(later_grid, mapping, words, after=-1)
         return rows
     return []
+
+
+def _rows(grid, mapping, words, after: int) -> list[dict[str, Cell]]:
+    rows = []
+    for r in sorted(grid):
+        if r <= after:
+            continue
+        row = {}
+        for c, name in mapping.items():
+            cell = grid[r].get(c)
+            row[name] = Cell(clean_text(cell["content"]), _cell_confidence(cell, words)) if cell else Cell("", None)
+        rows.append(row)
+    return rows

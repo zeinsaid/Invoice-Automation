@@ -4,11 +4,12 @@ A profile provides:
 - SUPPLIER: the supplier's name in PowerSoft
 - matches(page_text) -> bool: is this page from this supplier?
 - parse(layout_result, source, page_index) -> Invoice
+Table-style invoices share their parsing in base.py.
 """
 
-from . import athenites
+from . import athenites, cassandra, cosmos, fereos
 
-PROFILES = [athenites]
+PROFILES = [athenites, cassandra, cosmos, fereos]
 
 # Suppliers the tool recognises but deliberately skips (D-013), with the message for the report.
 SKIPPED = {

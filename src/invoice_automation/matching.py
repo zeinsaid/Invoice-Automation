@@ -20,7 +20,7 @@ from .model import RED, YELLOW, Flag, InvoiceLine
 from .supplier_items import TRUSTED, SupplierItems
 
 FUZZY_THRESHOLD = 90  # strict, for Athenites (D-015); 0-100 similarity
-COMMON_PACK_SIZES = (4, 6, 9, 12, 24)  # D-020; grows as Zein confirms others
+COMMON_PACK_SIZES = (3, 4, 6, 9, 12, 24)  # D-020; grows as Zein confirms others
 PACK_TOLERANCE = 0.10  # the price ratio must be within 10% of a whole pack size
 
 
@@ -108,14 +108,23 @@ def _similar_names(key, supplier, catalogue, table, exclude) -> list[tuple[str, 
             continue
         choices[("item", item.code, item.description)] = name_key(item.description)
     best: dict[str, float] = {}
-    for _, score, (_, code, _) in process.extract(key, choices, scorer=fuzz.token_sort_ratio, limit=10):
+    for _, score, (_, code, _) in process.extract(key, choices, scorer=_similarity, limit=10):
         best[code] = max(best.get(code, 0), score)
     ranked = sorted(best.items(), key=lambda kv: -kv[1])[:3]
     return [(code, catalogue.items[code].description, score) for code, score in ranked]
 
 
+def _similarity(a: str, b: str, **_) -> float:
+    """0-100. Plain character similarity catches misread letters ('BLUE ABEL' vs 'BLUE LABEL');
+    word-order-free similarity catches reordered words ('SALT VINEGAR LAYS'). The better one counts."""
+    return max(fuzz.ratio(a, b), fuzz.token_sort_ratio(a, b))
+
+
 def _suggest_pack(m: Match, line: InvoiceLine, supplier, invoice_no, catalogue, table) -> None:
     """Pack factor = invoice unit price / known cost of one piece (D-020)."""
+    if line.pieces_known:  # the invoice printed the pack size; quantity is already in pieces
+        m.pack_factor = 1
+        return
     reference = table.last_cost(supplier, m.item_code, invoice_no) or catalogue.items[m.item_code].cost
     unit_price = line.list_price_excl_vat
     if unit_price is None and line.quantity:
