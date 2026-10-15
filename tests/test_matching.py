@@ -1,0 +1,71 @@
+"""Pack-size suggestion (D-020) on a tiny made-up catalogue."""
+
+from invoice_automation.catalogue import Catalogue, Item, name_key
+from invoice_automation.matching import match_line
+from invoice_automation.model import RED, YELLOW, InvoiceLine
+from invoice_automation.supplier_items import SupplierItems
+
+SUPPLIER = "Test Supplier"
+
+
+def catalogue():
+    items = {
+        "1": Item("1", "FIZZ CAN 330ML", "1111111111116", 19, 0.50, 1.20, SUPPLIER, "", "", True),
+        "2": Item("2", "CRISPS SALTED 40G", "2222222222222", 5, 0.40, 0.90, SUPPLIER, "", "", True),
+    }
+    return Catalogue(items, {}, {})
+
+
+def line(description, barcode, qty, list_price, amount=None):
+    amount = qty * list_price if amount is None else amount
+    return InvoiceLine("1", description, barcode, qty, amount, 19, list_price_excl_vat=list_price)
+
+
+def match(l, tmp_path):
+    return match_line(l, SUPPLIER, "INV1", catalogue(), SupplierItems([], tmp_path / "t.xlsx"))
+
+
+def test_piece_barcode_is_factor_one(tmp_path):
+    m = match(line("FIZZ CAN 330ML", "1111111111116", 24, 0.50), tmp_path)
+    assert (m.item_code, m.pack_factor, m.method, m.flags) == ("1", 1, "barcode", [])
+
+
+def test_case_barcode_suggests_common_pack(tmp_path):
+    # A different (case) barcode, same name, priced at 24 cans.
+    m = match(line("FIZZ CAN 330ML", "9999999999994", 2, 12.00), tmp_path)
+    assert (m.item_code, m.pack_factor) == ("1", 24)
+    assert [f.level for f in m.flags] == [YELLOW]
+
+
+def test_discount_does_not_change_pack_size(tmp_path):
+    # 25% off the case: the ratio uses the price before discount, so it's still 24.
+    m = match(line("FIZZ CAN 330ML", "9999999999994", 1, 12.00, amount=9.00), tmp_path)
+    assert m.pack_factor == 24
+
+
+def test_unusual_pack_size_is_red(tmp_path):
+    m = match(line("FIZZ CAN 330ML", "9999999999994", 1, 6.50), tmp_path)  # 13x one can
+    assert m.pack_factor == 13 and [f.level for f in m.flags] == [RED]
+
+
+def test_price_between_pack_sizes_is_red_with_no_factor(tmp_path):
+    m = match(line("FIZZ CAN 330ML", "9999999999994", 1, 1.25), tmp_path)  # 2.5x
+    assert m.pack_factor is None and [f.level for f in m.flags] == [RED]
+
+
+def test_cut_off_name_matches(tmp_path):
+    # The supplier prints at most 30 characters.
+    items = catalogue()
+    items.items["3"] = Item("3", "SUPER LONG PRODUCT NAME HERE 500ML", "", 19, 1.0, 2.0, SUPPLIER, "", "", True)
+    m = match_line(line("SUPER LONG PRODUCT NAME HERE 5", "8888888888888", 1, 1.0), SUPPLIER, "INV1",
+                   items, SupplierItems([], tmp_path / "t.xlsx"))
+    assert (m.item_code, m.method) == ("3", "name")
+
+
+def test_unknown_product_is_new(tmp_path):
+    m = match(line("SOMETHING ELSE ENTIRELY", "7777777777777", 1, 3.0), tmp_path)
+    assert m.item_code is None and m.method == "new"
+
+
+def test_name_key_ignores_characters_powersoft_strips():
+    assert name_key("M&M'S (PEANUT) 45G") == name_key("MMS PEANUT 45 G")

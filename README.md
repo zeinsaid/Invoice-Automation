@@ -2,7 +2,7 @@
 
 Turns scanned supplier invoices into PowerSoft-ready Excel files for **The Plug Business Center**, a 24/7 print shop and mini-market in Nicosia, Cyprus.
 
-> **Status:** early development. The design is recorded in [DECISIONS.md](DECISIONS.md); code comes next.
+> **Status:** early development. Athenites invoices work end to end; other suppliers come next (D-015). The design is recorded in [DECISIONS.md](DECISIONS.md).
 
 ## The problem
 
@@ -45,8 +45,12 @@ Requirements: Windows, Python 3.12, [uv](https://docs.astral.sh/uv/), and an Azu
 ```powershell
 uv sync
 copy .env.example .env   # then fill in AZURE_DI_ENDPOINT and AZURE_DI_KEY
-uv run invoice-automation
+uv run invoice-automation                 # process everything in input/, then move it to processed/
+uv run invoice-automation path/to/scan.pdf # process specific files and leave them where they are
+uv run pytest                             # unit tests (synthetic data only)
 ```
+
+Document Intelligence responses are cached in `data/cache/di/`, so re-running a scan costs no Azure pages.
 
 Real shop data (supplier Excels, invoices) lives in `data/`, which is git-ignored and never committed.
 
