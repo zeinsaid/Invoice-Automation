@@ -108,6 +108,15 @@ My current expectation: start with `prebuilt-invoice` for supplier and totals, u
 
 **Reasoning.** The page is the only unit that is reliably "one supplier". Splitting costs nothing (it happens locally) and handles mixed scans and the free-tier limit in one go. Invoices longer than 2 pages are rare (big Athenites bulk orders), but they are handled by the same path.
 
+**Amendment (2026-10-15): how pages are grouped.** A PDF is read first, then split into invoices:
+- A page joins the invoice before it if the same supplier is recognised and the invoice numbers don't differ (a continuation page may not print the number).
+- **A page no supplier recognises also joins the invoice before it** (Zein: page 2 almost always follows page 1). Two exceptions:
+  - a page from a known enter-by-hand supplier (ED Sport, Aristidou, Asian Food Market) always stands alone, so it is still listed as "enter by hand";
+  - if the joined page gives the invoice nothing (no lines, no total), staff get one yes/no question: "Is page N part of this invoice?". No = it stands alone and is entered by hand.
+
+  The first rule is built; the join-and-confirm part will be built and tuned once the full Athenites and Agrotis scans (with page 2) arrive.
+- Staff will normally scan one invoice per PDF, so this mostly matters when several invoices are scanned together.
+
 ---
 
 ## D-005: Everything is stored per selling piece; invoice units are converted using supplier rules and known pack sizes
@@ -134,6 +143,12 @@ If a factor can't be determined, the line is **flagged, never guessed**.
 **Reasoning.** Unit conversion is the main source of silent quantity errors (1 instead of 24). Making it explicit per supplier and per item turns it into data that can be checked and grows over time, instead of logic hidden in code.
 
 **Known risk (deferred).** Supplier conventions can drift. For example, the same Hell energy drink might be billed as one 24-pack on one invoice and as 24 cans on another. Mitigations to design later: compare the converted line against the printed line total (D-010), and flag a line when its implied per-piece cost is far from the master cost.
+
+**Amendment (2026-10-15): printed pack sizes are checked by price.** When an invoice prints a pack size (Andrikian U.O.M., Agrotis UOM), it is used only if the price confirms it:
+- If the price matches a single piece, our item *is* the pack, so the size is 1.
+- If the price disagrees with the printed size, staff are asked, with the printed size suggested.
+
+Cassandra's FACT is trusted outright, because cigarettes are always sold per pack. *Why:* Andrikian prints the single item's barcode but sells boxes, so without this check a matched barcode meant "1 box = 1 lighter". The same price check absorbs suppliers that print a piece unit on some lines and a pack unit on others.
 
 **Amendment (2026-10-15): quantities always go to the storable item.** Some products exist in PowerSoft both as a single piece and as a pack (water 6-packs, beer 8-packs). The pack is set up as a **non-storable sub-item** that deducts from the single piece's stock when sold. The tool therefore always outputs the **storable** item, and never a non-storable one. A product bought as a pack is converted to pieces of the storable item. Items that exist as both single and pack but are *both* storable (e.g. Kinder Delice 177 bar / 1399 box) are a set-up problem. Zein is resolving them with staff (disable one, or make the pack a sub-item). Until then, the tool flags any line that matches either one of such a pair.
 
@@ -164,6 +179,8 @@ Only steps 1–2 are trusted automatically. Results from steps 3–4 are written
 **Barcode normalisation (2026-10-15).** Before comparing, barcodes are stripped of spaces and line breaks (Cosmos wraps 13-digit barcodes across two lines inside a cell) and of a trailing `-n`. Cosmos prints 8-digit barcodes as e.g. `40331423-n`; with the suffix removed, all 11 lines on the sample match PowerSoft exactly.
 
 **Supplier wording vs PowerSoft wording.** When a barcode matches but the supplier's name differs (Athenites "DORITOS THAI SRIRACHA 90GR" = PowerSoft "DORITOS F1 Drive Mode 90G"; the pack says F1 Drive Mode), the supplier's wording is stored in the supplier-items table. No catalogue change is needed.
+
+**Amendment (2026-10-15): supplier item codes are learning keys.** Besides barcodes, the tool learns each supplier's own item code (Pambos `CRYSTALVAPE14`, Jumbo `1171628`, Vassos new code), stored in the supplier-items table next to our Item Code. *Why:* codes stay on their row even when long descriptions spill into the next one (Pambos), and they work where names are Greek abbreviations that won't match ours (Jumbo). Not every supplier prints codes, which is why our own Item Codes can't simply be the suppliers' codes. The PowerSoft export is not edited (D-018): the link between supplier codes and our codes lives only in the supplier-items table.
 
 ---
 
@@ -312,6 +329,8 @@ No separate new-items file is needed.
 - **PowerSoft upload or API** (D-001).
 
 **On probation: Asian Food Market.** A thermal till receipt with shortened names and no barcodes, which can group flavours into one line (e.g. "Bulldog"). It stays in scope until Zein checks with staff whether lines are reliable enough. If not, it joins the list above.
+
+**Amendment (2026-10-15):** Asian Food Market is entered by hand for now; it is listed as "enter by hand" in the run. To be revisited and tested once everything else is done.
 
 When the tool recognises an out-of-scope supplier, it skips the page and says so in the report ("Aristidou: please enter by hand") instead of failing.
 
