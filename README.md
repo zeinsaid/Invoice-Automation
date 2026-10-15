@@ -62,4 +62,3 @@ Real shop data (supplier Excels, invoices) lives in `data/`, which is git-ignore
 
 - [DECISIONS.md](DECISIONS.md): numbered design decisions with the reasoning behind each one
 - [CLAUDE.md](CLAUDE.md): project brief and working agreement
-- [TODO.md](TODO.md): where development left off and what's next

@@ -54,7 +54,7 @@ It's also my hands-on prep for the **Microsoft AI-103** exam (Azure AI Apps and 
 - Created by running the tool (safe to wipe while testing): `data/supplier_items.xlsx`, `data/state/` (queue, new-item codes, processed invoices, price changes), `data/reports/`, `output/Ready to upload/`, `logs/`.
 - `data/flag_items.csv`: items that always get a question (single/pack pairs).
 
-**Docs:** `DECISIONS.md` (read it before proposing changes), `README.md`, `TODO.md` (where we left off).
+**Docs:** `DECISIONS.md` (read it before proposing changes), `README.md`.
 
 ## Constraints
 
@@ -63,8 +63,8 @@ It's also my hands-on prep for the **Microsoft AI-103** exam (Azure AI Apps and 
 - **Runs on the Windows shop PC** with Deep Freeze: everything the tool keeps lives on the ThawSpace drive, never C: (D-016). I'm in Dubai and reach it over AnyDesk, so deployment and fixes must be simple.
 - Python 3.12 with `uv`.
 - **Azure:** my work Microsoft account, free trial subscription (billing country UAE), resource group `rg-invoice-automation`, Document Intelligence `di-theplug-invoices` on the free F0 tier in North Europe (West Europe refused new customers). Endpoint and key are in `.env`. Upgrade to pay-as-you-go before the trial ends (around 14 Nov 2026) or the resource stops.
-- **Testing the window:** never screenshot the screen (it captures whatever else is open). Capture the window itself (PrintWindow) with it nearly transparent; see TODO.md.
+- **Testing the window:** never screenshot the screen (it captures whatever else is open). Capture the window itself (PrintWindow) with it nearly transparent (`root.attributes("-alpha", 0.01)` + Win32 `PrintWindow`).
 
 ## Start here
 
-Read `TODO.md` for where we left off and what's next, then `DECISIONS.md`.
+Check your memory for where we left off and what's next, then read `DECISIONS.md`.
