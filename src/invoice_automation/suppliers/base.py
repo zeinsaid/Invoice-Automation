@@ -8,6 +8,7 @@ A supplier module describes its invoice and turns one table row into an InvoiceL
     EDITABLE               {field: label} for the printed numbers staff may correct (D-022)
     NUMBER, DATE, TOTAL    regex patterns (first group) for invoice number, date, printed total
     row_to_line(row)       one table row -> InvoiceLine, or None if it isn't an item row
+    adjust(invoice, text)  optional: invoice-wide changes, e.g. a discount on the whole invoice
 
 This module does the rest the same way for everyone: find the table, apply staff corrections,
 number the lines, find the header fields and the total.
@@ -43,8 +44,11 @@ def parse(profile, result: dict, source, page_index: int, corrections: dict | No
             # printed it that way; don't ask again.
             line.flags = [f for f in line.flags if f.kind != UNREADABLE]
         line.line_no = str(len(lines) + 1)  # by position: printed line numbers get pen-damaged
+        line.page = page_index
         line.row_index = row_index
         line.box = row["_row"].box
+        line.header_box = row["_header"].box
+        line.angle = result["pages"][0].get("angle", 0.0) or 0.0
         line.fields = {name: row[name].text for name in profile.EDITABLE}
         lines.append(line)
 
@@ -59,12 +63,34 @@ def parse(profile, result: dict, source, page_index: int, corrections: dict | No
         computed_total=computed_total(lines),
         source=source,
         pages=[page_index],
-        page_size=(page.get("width", 0.0), page.get("height", 0.0)),
         page_angle=page.get("angle", 0.0) or 0.0,
-        header_box=rows[0]["_header"].box if rows else None,
+    )
+    adjust = getattr(profile, "adjust", None)
+    if adjust:
+        adjust(invoice, text)
+        invoice.computed_total = computed_total(invoice.lines)
+    return invoice
+
+
+def combine(pages: list[Invoice]) -> Invoice:
+    """Several pages of one invoice (D-004): lines in order, header from the first page that has
+    it, the total from the last page that prints one."""
+    first = pages[0]
+    lines = [line for p in pages for line in p.lines]
+    for i, line in enumerate(lines, 1):
+        line.line_no = str(i)
+    invoice = Invoice(
+        supplier=first.supplier, short_name=first.short_name,
+        number=next((p.number for p in pages if p.number), None),
+        date=next((p.date for p in pages if p.date), None),
+        lines=lines,
+        printed_total=next((p.printed_total for p in reversed(pages) if p.printed_total is not None), None),
+        computed_total=computed_total(lines),
+        source=first.source, pages=[i for p in pages for i in p.pages],
+        flags=[f for p in pages for f in p.flags], page_angle=first.page_angle,
     )
     if not lines:
-        invoice.flags.append(Flag(RED, "row", "No item lines could be read from this page.", ZEIN))
+        invoice.flags.append(Flag(RED, "row", "No item lines could be read.", ZEIN))
     return invoice
 
 
@@ -110,6 +136,29 @@ def barcode_flag(barcode: str) -> Flag | None:
     if barcode and not ean_is_valid(barcode):
         return Flag(YELLOW, "item", f"Barcode {barcode} looks misread (check digit wrong).")
     return None
+
+
+def spread_discount(invoice: Invoice, discount_excl_vat: float) -> None:
+    """An invoice-wide discount (D-009) is shared over every line in proportion to its value,
+    so each item's cost per piece includes its share."""
+    net = sum(line.amount_excl_vat for line in invoice.lines)
+    if discount_excl_vat and net:
+        factor = 1 - discount_excl_vat / net
+        for line in invoice.lines:
+            line.amount_excl_vat *= factor
+            if line.list_price_excl_vat is not None:
+                line.list_price_excl_vat *= factor
+
+
+def split_code_and_barcode(text: str) -> tuple[str, str, str]:
+    """'1003/ 5290750000152' or '6970925916646 LEMON & LIME 1' -> (code, barcode, rest of the text).
+
+    The barcode is the first group of 8, 12 or 13 digits with a valid check digit."""
+    for m in re.finditer(r"\d{8,14}", text):
+        if ean_is_valid(m.group()):
+            before, after = text[:m.start()].strip(" /-"), text[m.end():].strip(" /-")
+            return before, m.group(), after
+    return "", "", text.strip()
 
 
 def vat_from_percent(cell: Cell) -> tuple[int, Flag | None]:

@@ -37,10 +37,20 @@ class InvoiceLine:
     vat_rate: int  # 0, 5 or 19
     list_price_excl_vat: float | None = None  # price of one invoice unit before discounts (for pack-size checks)
     pieces_known: bool = False  # True if the invoice printed the pack factor and quantity is already in pieces
+    printed_factor: float | None = None  # a pack size the invoice prints but that needs the price to confirm it
+    supplier_code: str = ""  # the supplier's own item code, a learning key that survives OCR noise in names
     flags: list[Flag] = field(default_factory=list)
-    row_index: int = -1  # position in the table, including non-item rows; keys staff corrections
+    page: int = 0  # which page of the PDF the line is on
+    row_index: int = -1  # position in that page's table, including non-item rows
     box: tuple[float, float, float, float] | None = None  # where the line is on the page (inches)
+    header_box: tuple[float, float, float, float] | None = None  # the table's header row on that page
+    angle: float = 0.0  # the page's rotation (degrees clockwise), for turning crops upright
     fields: dict[str, str] = field(default_factory=dict)  # the printed numbers staff may correct, as read
+
+    @property
+    def key(self) -> str:
+        """Identifies the line across re-evaluations: answers are stored under it."""
+        return f"{self.page}:{self.row_index}"
 
 
 @dataclass
@@ -55,6 +65,4 @@ class Invoice:
     source: Path
     pages: list[int]
     flags: list[Flag] = field(default_factory=list)  # invoice-wide flags
-    page_size: tuple[float, float] = (0.0, 0.0)  # inches, as DI saw the page
-    page_angle: float = 0.0  # degrees clockwise; 90 for a page scanned sideways
-    header_box: tuple[float, float, float, float] | None = None  # the line table's header row (inches)
+    page_angle: float = 0.0  # first page's rotation, degrees clockwise; 90 for a page scanned sideways

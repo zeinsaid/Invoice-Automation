@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from .pipeline import (DONE, MANUAL, PENDING, RESCAN, SKIPPED, ZEIN_LIST, Context, Entry, Evaluation, Question,
-                       Result, enqueue, evaluate, finalize, load_queue, save_queue)
+from .pipeline import (DONE, MANUAL, NEW, PENDING, RESCAN, SKIPPED, ZEIN_LIST, Context, Entry, Evaluation, Question,
+                       Result, enqueue, evaluate, finalize, load_queue, save_queue, split)
 
 REPORTS_DIR = Path("data/reports")
 
@@ -33,6 +33,9 @@ class Session:
 
     def next_question(self) -> tuple[Entry, Evaluation, Question] | None:
         """Finish everything that needs no question; return the next question, or None when done."""
+        if any(e.status == NEW for e in self.entries):
+            self.entries = split(self.entries)
+            save_queue(self.entries)
         for entry in self.entries:
             if entry.status != PENDING and not (self.zein and entry.status == ZEIN_LIST):
                 continue
@@ -108,4 +111,6 @@ class Session:
 
 def _where(entry: Entry) -> str:
     name = Path(entry.file).name
-    return f"{entry.label} ({name}, page {entry.page + 1})" if entry.label else f"{name}, page {entry.page + 1}"
+    pages = ", ".join(str(p + 1) for p in entry.pages)
+    where = f"{name}, page{'s' if len(entry.pages) > 1 else ''} {pages}"
+    return f"{entry.label} ({where})" if entry.label else where

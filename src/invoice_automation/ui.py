@@ -16,7 +16,7 @@ from PIL import Image, ImageTk
 from .crops import crop
 from .extract import analyze_page
 from .layout import parse_number
-from .pipeline import DONE, MANUAL, PENDING, READY_DIR, RESCAN, SKIPPED, ZEIN_LIST, search_items, suggested_category
+from .pipeline import DONE, MANUAL, NEW, PENDING, READY_DIR, RESCAN, SKIPPED, ZEIN_LIST, search_items, suggested_category
 from .session import Session, _where
 
 LOG = Path("logs/error.log")
@@ -61,10 +61,10 @@ class App:
         try:
             if pdfs:
                 self.session.add(pdfs, move)
-            todo = [e for e in self.session.entries if e.status == PENDING]
-            for i, entry in enumerate(todo, 1):
+            todo = [(e.file, p) for e in self.session.entries if e.status in (NEW, PENDING) for p in e.pages]
+            for i, (file, page) in enumerate(todo, 1):
                 self._progress = f"Page {i} of {len(todo)}"
-                analyze_page(Path(entry.file), entry.page, "prebuilt-layout")  # cached after the first time
+                analyze_page(Path(file), page, "prebuilt-layout")  # cached after the first time
         except Exception as e:  # noqa: BLE001 - every failure becomes "contact Zein"
             self._read_error = e
         self._read_done = True
@@ -167,14 +167,15 @@ class App:
         if inv is None:
             return
         parts = []
+        pdf = Path(entry.file)
         if q.line is not None:
-            for box in (inv.header_box, q.line.box):
+            for box in (q.line.header_box, q.line.box):
                 if box:
-                    parts.append(crop(Path(entry.file), entry.page, box, inv.page_angle))
+                    parts.append(crop(pdf, q.line.page, box, q.line.angle))
         elif q.kind in ("number", "duplicate"):
-            parts.append(crop(Path(entry.file), entry.page, None, inv.page_angle, "top"))
+            parts.append(crop(pdf, entry.pages[0], None, inv.page_angle, "top"))
         elif q.kind == "total" and inv.printed_total is not None:
-            parts.append(crop(Path(entry.file), entry.page, None, inv.page_angle, "bottom"))
+            parts.append(crop(pdf, entry.pages[-1], None, inv.page_angle, "bottom"))
         parts = [p for p in parts if p is not None]
         if not parts:
             return

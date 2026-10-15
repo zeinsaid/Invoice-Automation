@@ -76,3 +76,26 @@ def test_misread_letter_still_matches(tmp_path):
     m = match_line(line("L&M BLUE ABEL", "7623900203895", 10, 3.3), SUPPLIER, "INV1", items,
                    SupplierItems([], tmp_path / "t.xlsx"))
     assert (m.item_code, m.method) == ("4", "fuzzy")
+
+
+def test_printed_pack_size_confirmed_by_price(tmp_path):
+    # Piece barcode, but the invoice sells boxes of 24 (Andrikian); the price agrees, so no question.
+    l = line("FIZZ CAN 330ML", "1111111111116", 2, 12.00)
+    l.printed_factor = 24
+    m = match(l, tmp_path)
+    assert (m.item_code, m.pack_factor, m.flags) == ("1", 24, [])
+
+
+def test_printed_pack_size_but_our_item_is_the_pack(tmp_path):
+    # The invoice prints x12, but our item is priced like the whole pack: 1 unit = 1 item.
+    l = line("CRISPS SALTED 40G", "2222222222222", 3, 0.40)
+    l.printed_factor = 12
+    m = match(l, tmp_path)
+    assert (m.pack_factor, m.flags) == (1, [])
+
+
+def test_printed_pack_size_disagreeing_with_price_is_asked(tmp_path):
+    l = line("FIZZ CAN 330ML", "1111111111116", 1, 10.00)  # 20x one can, but printed x24
+    l.printed_factor = 24
+    m = match(l, tmp_path)
+    assert m.pack_factor == 24 and [(f.level, f.data["suggested"]) for f in m.flags] == [("yellow", 24)]

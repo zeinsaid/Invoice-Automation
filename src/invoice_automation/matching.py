@@ -1,7 +1,7 @@
 """Find which of our items an invoice line is, and how many selling pieces it holds (D-006, D-020).
 
 Order, cheapest and most certain first:
-1. learned:  this supplier's barcode is already in the supplier-items table
+1. learned:  this supplier's barcode (or own item code) is already in the supplier-items table
 2. barcode:  the printed barcode is an item's barcode in PowerSoft (a single piece, factor 1)
 3. name:     the supplier's wording matches exactly (their old wording from the legacy lists, or
              our item name; Athenites cuts names at 30 characters, so a cut-off name also counts)
@@ -44,8 +44,10 @@ def match_line(line: InvoiceLine, supplier: str, invoice_no: str, catalogue: Cat
     """Match one line. Item codes in `exclude` are ignored (codes created for this same invoice)."""
     barcode = usable_barcode(line)
 
-    # 1. Learned from an earlier invoice.
+    # 1. Learned from an earlier invoice, by barcode or by the supplier's own item code.
     learned = table.get(supplier, "barcode", barcode) if barcode else None
+    if not (learned and learned.item_code in catalogue.items) and line.supplier_code:
+        learned = table.get(supplier, "code", line.supplier_code)
     if learned and learned.item_code in catalogue.items and learned.item_code not in exclude:
         m = Match(learned.item_code, learned.pack_factor, "learned", candidates=_top(learned.item_code, catalogue))
         if learned.status != TRUSTED:
@@ -54,13 +56,17 @@ def match_line(line: InvoiceLine, supplier: str, invoice_no: str, catalogue: Cat
             suggest_pack(m, line, supplier, invoice_no, catalogue, table)
         return m
 
-    # 2. Barcode is the piece barcode in PowerSoft.
+    # 2. Barcode is the piece barcode in PowerSoft. The item is certain; the pack size is 1, unless
+    #    the invoice prints one (Andrikian: the lighter's barcode, but a box of 25), which the price checks.
     codes = [c for c in catalogue.by_barcode.get(barcode, []) if c not in exclude] if barcode else []
     if codes:
         storable = [c for c in codes if catalogue.items[c].storable] or codes
         m = Match(storable[0], 1, "barcode", candidates=[(c, catalogue.items[c].description, 100) for c in storable])
         if len(storable) > 1:
             m.flags.append(Flag(YELLOW, "item", f"Barcode {barcode} is on several items ({', '.join(storable)}).", MATCH))
+        if line.printed_factor:
+            m.pack_factor = None
+            suggest_pack(m, line, supplier, invoice_no, catalogue, table)
         return m
 
     # 3. Exact name.
@@ -137,14 +143,29 @@ def suggest_pack(m: Match, line: InvoiceLine, supplier, invoice_no, catalogue, t
     unit_price = line.list_price_excl_vat
     if unit_price is None and line.quantity:
         unit_price = line.amount_excl_vat / line.quantity
+    if not unit_price and line.quantity:  # free goods: no price to compare, so staff confirm the size
+        m.flags.append(Flag(YELLOW, "quantity", "Free goods (no price), so the pack size can't be checked.", PACK,
+                            {"suggested": line.printed_factor or 1}))
+        return
     if not reference or not unit_price:
         m.flags.append(Flag(RED, "quantity", "Pack size unknown (no known cost to compare with).", PACK,
-                            {"suggested": None}))
+                            {"suggested": line.printed_factor}))
         return
     ratio = unit_price / reference
     nearest = max(1, round(ratio))
     close = abs(ratio - nearest) <= PACK_TOLERANCE * nearest
-    if close and nearest == 1:
+    printed = line.printed_factor
+    if printed and abs(ratio - printed) <= PACK_TOLERANCE * printed:
+        m.pack_factor = printed  # the invoice prints the pack size and the price confirms it
+    elif printed and printed > 1 and close and nearest == 1:
+        m.pack_factor = 1  # printed as a pack, but our item is the whole pack (priced like one piece)
+    elif printed:
+        # The price doesn't confirm the printed size (e.g. our cost is out of date): suggest what the
+        # paper says, and let staff confirm.
+        m.pack_factor = printed
+        m.flags.append(Flag(YELLOW, "quantity", f"The invoice says {printed:g} per unit, but the price looks like "
+                                                f"{ratio:.1f}. Check on the box.", PACK, {"suggested": printed}))
+    elif close and nearest == 1:
         m.pack_factor = 1
     elif close and nearest in COMMON_PACK_SIZES:
         m.pack_factor = nearest

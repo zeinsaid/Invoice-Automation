@@ -7,14 +7,15 @@ A profile provides:
 Table-style invoices share their parsing in base.py.
 """
 
-from . import athenites, cassandra, cosmos, fereos
+from . import agrotis, andrikian, athenites, base, cassandra, cosmos, fereos, jumbo, pambos, partyice, rainbow, vassos
 
-PROFILES = [athenites, cassandra, cosmos, fereos]
+PROFILES = [athenites, cassandra, cosmos, fereos, andrikian, vassos, agrotis, rainbow, pambos, partyice, jumbo]
 
 # Suppliers the tool recognises but deliberately skips (D-013), with the message for the report.
 SKIPPED = {
     "ARISTIDOU": "Aristidou (water): please enter by hand.",
     "ED SPORT": "ED Sport: handwritten, please enter by hand.",
+    "ZHENG DONISCHAL": "Asian Food Market: please enter by hand (not automated yet).",
 }
 
 

@@ -42,17 +42,18 @@ TOTAL_TOLERANCE = 0.05  # euros
 PRICE_CHANGE_MIN = 0.01  # euros per piece; smaller differences are rounding (PowerSoft keeps 2 decimals)
 PROMOTE_WITHIN = 0.15  # a provisional match becomes trusted if its cost is within 15% of the known cost (D-018)
 
-# Queue statuses
-PENDING, ZEIN_LIST, DONE, SKIPPED, MANUAL, RESCAN = "pending", "needs_zein", "done", "skipped", "manual", "rescan"
+# Queue statuses. NEW = a whole PDF not yet split into invoices.
+NEW, PENDING, ZEIN_LIST, DONE, SKIPPED, MANUAL, RESCAN = ("new", "pending", "needs_zein", "done", "skipped",
+                                                          "manual", "rescan")
 
 
 # --- Queue ------------------------------------------------------------------------------------
 
 @dataclass
 class Entry:
-    """One scanned page waiting for review, with the answers given so far."""
+    """One invoice (one or more pages of a scan) waiting for review, with the answers given so far."""
     file: str
-    page: int
+    pages: list[int]
     added: str
     status: str = PENDING
     answers: dict = field(default_factory=dict)
@@ -62,7 +63,7 @@ class Entry:
 
     @property
     def key(self) -> str:
-        return f"{self.file}#{self.page}"
+        return f"{self.file}#{self.pages[0]}"
 
 
 def load_queue() -> list[Entry]:
@@ -79,7 +80,8 @@ def save_queue(entries: list[Entry]) -> None:
 
 
 def enqueue(pdfs: list[Path], move: bool) -> list[Entry]:
-    """Add every page of these PDFs to the queue. With `move`, scans leave input/ first (D-002)."""
+    """Add these PDFs to the queue (split into invoices later, once read). With `move`, scans leave
+    input/ first (D-002)."""
     entries = load_queue()
     known = {e.key for e in entries}
     now = datetime.now().isoformat(timespec="seconds")
@@ -93,13 +95,41 @@ def enqueue(pdfs: list[Path], move: bool) -> list[Entry]:
             pdf = target
         with pymupdf.open(pdf) as doc:
             pages = doc.page_count
-        for page in range(pages):
-            entry = Entry(str(pdf).replace("\\", "/"), page, now)
-            if entry.key not in known:
-                entries.append(entry)
-                known.add(entry.key)
+        entry = Entry(str(pdf).replace("\\", "/"), list(range(pages)), now, status=NEW)
+        if entry.key not in known:
+            entries.append(entry)
+            known.add(entry.key)
     save_queue(entries)
     return entries
+
+
+def split(entries: list[Entry]) -> list[Entry]:
+    """Turn each NEW PDF into one entry per invoice (D-004).
+
+    A page joins the invoice before it if the same supplier profile recognises it and the invoice
+    numbers don't differ (a continuation page may not print the number). A page no profile
+    recognises always stands alone (it becomes "enter by hand").
+    """
+    out = []
+    for entry in entries:
+        if entry.status != NEW:
+            out.append(entry)
+            continue
+        groups: list[tuple[object, str | None, list[int]]] = []
+        for page in entry.pages:
+            layout = analyze_page(Path(entry.file), page, "prebuilt-layout")
+            profile = suppliers.identify(layout.get("content", ""))
+            number = profile.parse(layout, Path(entry.file), page).number if profile else None
+            last = groups[-1] if groups else None
+            if (profile and last and last[0] is profile
+                    and (number is None or last[1] is None or number == last[1])):
+                last[2].append(page)
+                groups[-1] = (profile, last[1] or number, last[2])
+            else:
+                groups.append((profile, number, [page]))
+        for _, _, pages in groups:
+            out.append(Entry(entry.file, pages, entry.added))
+    return out
 
 
 # --- Questions --------------------------------------------------------------------------------
@@ -141,8 +171,8 @@ class Context:
 
 def evaluate(entry: Entry, ctx: Context) -> Evaluation:
     ev = Evaluation(entry)
-    layout = analyze_page(Path(entry.file), entry.page, "prebuilt-layout")
-    text = layout.get("content", "")
+    layouts = [analyze_page(Path(entry.file), page, "prebuilt-layout") for page in entry.pages]
+    text = layouts[0].get("content", "")
     profile = suppliers.identify(text)
     if profile is None:
         ev.outcome = MANUAL
@@ -150,8 +180,11 @@ def evaluate(entry: Entry, ctx: Context) -> Evaluation:
         return ev
 
     a = entry.answers
-    corrections = {k.split(":", 1)[1]: v for k, v in a.items() if k.startswith("fix:")}
-    inv = profile.parse(layout, Path(entry.file), entry.page, corrections)
+    pages = []
+    for page, layout in zip(entry.pages, layouts):
+        corrections = {k.split(":")[2]: v for k, v in a.items() if k.startswith(f"fix:{page}:")}
+        pages.append(profile.parse(layout, Path(entry.file), page, corrections))
+    inv = suppliers.base.combine(pages)
     ev.invoice = inv
     ev.labels = profile.EDITABLE
     if a.get("number"):
@@ -203,7 +236,7 @@ def _zein(ev: Evaluation, note: str) -> Evaluation:
 def _line(line: InvoiceLine, inv: Invoice, ev: Evaluation, ctx: Context) -> Question | None:
     """Work out one line, applying answers. Returns the next question about it, if any."""
     a = ev.entry.answers
-    row = str(line.row_index)
+    row = line.key
     for flag in line.flags:
         if flag.kind == ZEIN:
             _zein(ev, f"Line {line.line_no}: {flag.message}")
@@ -291,7 +324,7 @@ def finalize(ev: Evaluation, ctx: Context) -> Result:
     amounts: dict[str, float] = {}
     confirmed = []
     for line, m in ev.lines:
-        row_key = str(line.row_index)
+        row_key = line.key
         if m.method == "new_item":
             form = a[f"item:{row_key}"]["new"]
             m.item_code = _issue_new_item(line, inv, form, m.pack_factor, ctx.catalogue).code
@@ -348,7 +381,9 @@ def _learn(ev: Evaluation, ctx: Context) -> None:
     today = str(date.today())
     for line, m in ev.lines:
         barcode = usable_barcode(line)
-        if not barcode or m.item_code is None:
+        keys = [("barcode", barcode)] if barcode else []
+        keys += [("code", line.supplier_code)] if line.supplier_code else []
+        if not keys or m.item_code is None:
             continue
         pieces = line.quantity * (m.pack_factor or 1)
         cost = line.amount_excl_vat / pieces if pieces else None
@@ -357,15 +392,16 @@ def _learn(ev: Evaluation, ctx: Context) -> None:
         if not trusted and total_ok and cost:
             reference = ctx.table.last_cost(inv.supplier, m.item_code, inv.number) or ctx.catalogue.items[m.item_code].cost
             trusted = bool(reference) and abs(cost - reference) / reference <= PROMOTE_WITHIN
-        row = ctx.table.upsert(SupplierItem(
-            supplier=inv.supplier, key_type="barcode", key=barcode,
-            supplier_description=line.description, item_code=m.item_code, pack_factor=m.pack_factor,
-            status=TRUSTED if trusted else PROVISIONAL, source=m.method, last_cost=cost,
-            last_invoice=inv.number, previous_cost=None, last_seen=today,
-        ))
-        if "staff" in m.method or "+pack" in m.method or m.method == "new_item":
-            # An explicit answer overrides whatever was stored before.
-            row.item_code, row.pack_factor, row.status, row.source = m.item_code, m.pack_factor, TRUSTED, m.method
+        for key_type, key in keys:
+            row = ctx.table.upsert(SupplierItem(
+                supplier=inv.supplier, key_type=key_type, key=key,
+                supplier_description=line.description, item_code=m.item_code, pack_factor=m.pack_factor,
+                status=TRUSTED if trusted else PROVISIONAL, source=m.method, last_cost=cost,
+                last_invoice=inv.number, previous_cost=None, last_seen=today,
+            ))
+            if "staff" in m.method or "+pack" in m.method or m.method == "new_item":
+                # An explicit answer overrides whatever was stored before.
+                row.item_code, row.pack_factor, row.status, row.source = m.item_code, m.pack_factor, TRUSTED, m.method
 
 
 # --- New item codes (D-012) ---------------------------------------------------------------------
