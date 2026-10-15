@@ -33,10 +33,10 @@ output/ (one Excel per invoice + a short report)  → a person checks it, then u
 
 ## For shop staff
 
-1. Put the scanned invoices into `input/`.
+1. Put the scanned invoices into `input/` (all pages of an invoice in one PDF).
 2. Double-click **Process Invoices**.
-3. When it says **Done**, open `output/`, check each file against its paper invoice, and upload it to PowerSoft.
-4. If it says **Something went wrong**, or a file has **red** cells, don't upload it. Contact Zein.
+3. Answer the questions in the window, using the paper invoice (and the product, for barcodes). If you can't answer one, press **I'm not sure**.
+4. When it says **Done**, upload the files in `output/Ready to upload/` to PowerSoft.
 
 ## For developers
 
@@ -45,12 +45,15 @@ Requirements: Windows, Python 3.12, [uv](https://docs.astral.sh/uv/), and an Azu
 ```powershell
 uv sync
 copy .env.example .env   # then fill in AZURE_DI_ENDPOINT and AZURE_DI_KEY
-uv run invoice-automation                 # process everything in input/, then move it to processed/
+uv run invoice-automation                 # process everything in input/ (moved to processed/), open the review window
 uv run invoice-automation path/to/scan.pdf # process specific files and leave them where they are
+uv run invoice-automation --zein          # Zein's mode: also work through invoices staff sent to Zein
+uv run invoice-automation --no-window     # no window: finish what needs no questions (testing)
 uv run pytest                             # unit tests (synthetic data only)
 ```
 
 Document Intelligence responses are cached in `data/cache/di/`, so re-running a scan costs no Azure pages.
+Open questions and answers live in `data/state/queue.json`; Zein's run reports in `data/reports/`; errors in `logs/error.log`.
 
 Real shop data (supplier Excels, invoices) lives in `data/`, which is git-ignored and never committed.
 

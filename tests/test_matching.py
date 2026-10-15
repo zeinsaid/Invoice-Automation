@@ -8,12 +8,13 @@ from invoice_automation.supplier_items import SupplierItems
 SUPPLIER = "Test Supplier"
 
 
-def catalogue():
-    items = {
-        "1": Item("1", "FIZZ CAN 330ML", "1111111111116", 19, 0.50, 1.20, SUPPLIER, "", "", True),
-        "2": Item("2", "CRISPS SALTED 40G", "2222222222222", 5, 0.40, 0.90, SUPPLIER, "", "", True),
-    }
-    return Catalogue(items, {}, {})
+def catalogue(*extra: Item):
+    items = [
+        Item("1", "FIZZ CAN 330ML", "1111111111116", 19, 0.50, 1.20, SUPPLIER, "", "", True),
+        Item("2", "CRISPS SALTED 40G", "2222222222222", 5, 0.40, 0.90, SUPPLIER, "", "", True),
+        *extra,
+    ]
+    return Catalogue({i.code: i for i in items}, {}, {})
 
 
 def line(description, barcode, qty, list_price, amount=None):
@@ -55,8 +56,7 @@ def test_price_between_pack_sizes_is_red_with_no_factor(tmp_path):
 
 def test_cut_off_name_matches(tmp_path):
     # The supplier prints at most 30 characters.
-    items = catalogue()
-    items.items["3"] = Item("3", "SUPER LONG PRODUCT NAME HERE 500ML", "", 19, 1.0, 2.0, SUPPLIER, "", "", True)
+    items = catalogue(Item("3", "SUPER LONG PRODUCT NAME HERE 500ML", "", 19, 1.0, 2.0, SUPPLIER, "", "", True))
     m = match_line(line("SUPER LONG PRODUCT NAME HERE 5", "8888888888888", 1, 1.0), SUPPLIER, "INV1",
                    items, SupplierItems([], tmp_path / "t.xlsx"))
     assert (m.item_code, m.method) == ("3", "name")
@@ -72,8 +72,7 @@ def test_name_key_ignores_characters_powersoft_strips():
 
 
 def test_misread_letter_still_matches(tmp_path):
-    items = catalogue()
-    items.items["4"] = Item("4", "L&M BLUE LABEL", "76239366", 19, 3.3, 4.3, SUPPLIER, "", "", True)
+    items = catalogue(Item("4", "L&M BLUE LABEL", "76239366", 19, 3.3, 4.3, SUPPLIER, "", "", True))
     m = match_line(line("L&M BLUE ABEL", "7623900203895", 10, 3.3), SUPPLIER, "INV1", items,
                    SupplierItems([], tmp_path / "t.xlsx"))
     assert (m.item_code, m.method) == ("4", "fuzzy")

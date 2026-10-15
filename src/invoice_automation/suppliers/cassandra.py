@@ -14,7 +14,7 @@ import re
 import sys
 
 from ..layout import normalise_barcode, parse_number
-from ..model import RED, Flag, InvoiceLine
+from ..model import InvoiceLine
 from . import base
 
 SUPPLIER = "Cassandra Trading LTD"
@@ -33,6 +33,8 @@ COLUMNS = {
     "total": r"TOTAL",
 }
 REQUIRED = "fact"
+EDITABLE = {"fact": "FACT (packs per carton)", "qty": "QTY (cartons)", "sub": "SUB (loose packs)",
+            "price": "PRC", "gross": "GROSS", "disc": "DISC %", "total": "TOTAL"}
 NUMBER = [r"(\d{10,})\s*\(\s*[ΑA][ΡP]\.?\s*[ΕE][ΚK]"]  # '2220210014484 (Αρ. Εκτύπωσης: 2)'
 DATE = [r"ΠΑΡΑΣΤΑΤΙΚΟΥ:?\s*(\d{2}/\d{2}/\d{4})"]
 TOTAL = [r"TOTAL EURO\s*(\d+[.,]\d{2})"]
@@ -42,8 +44,8 @@ def matches(page_text: str) -> bool:
     return "CASSANDRA" in page_text.upper()
 
 
-def parse(result, source, page_index):
-    return base.parse(sys.modules[__name__], result, source, page_index)
+def parse(result, source, page_index, corrections=None):
+    return base.parse(sys.modules[__name__], result, source, page_index, corrections)
 
 
 def row_to_line(row) -> InvoiceLine | None:
@@ -60,7 +62,7 @@ def row_to_line(row) -> InvoiceLine | None:
     disc = (parse_number(row["disc"].text) or 0.0) / 100
 
     if None in (fact, qty, price, gross, total) or not fact:
-        flags.append(Flag(RED, "quantity", "Pack size, quantity or price could not be read."))
+        flags.append(base.unreadable_flag("Pack size, quantity or price"))
         fact, qty, price, gross = fact or 1, qty or 0, price or 0, gross or 0
     else:
         cartons = qty + (sub or 0) / fact  # loose packs are priced as part of a carton

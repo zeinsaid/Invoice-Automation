@@ -27,6 +27,7 @@ Numbered record of design decisions: what was decided, why, and what else was co
 | D-019 | One-off PowerSoft cleanup via a reviewed "modify items" upload, before building the tool | Accepted |
 | D-020 | Athenites profile: barcode = purchase unit, VAT-inclusive amounts, pack factor learned per barcode | Accepted |
 | D-021 | Use `prebuilt-layout` only; the supplier profile interprets the table | Accepted (amended 2026-10-15) |
+| D-022 | Review window: staff answer questions from the paper and the shelf; the Excel is only written once an invoice is cleared | Accepted |
 
 ---
 
@@ -572,3 +573,44 @@ The 11 VAT corrections were made by hand and verified in the second 2026-10-14 e
 **Amendment (2026-10-15): arithmetic beats confidence.** When a line's own arithmetic checks out (quantity × price = line amount, D-010 amendment), those numbers are treated as correctly read whatever their confidence score, and get no "hard to read" flag. Confidence is only used for numbers no check covers (e.g. Cassandra's FACT column). Barcodes are vouched for by their check digit and names go through matching, so neither gets a confidence flag.
 
 *Why:* on Cassandra, confidence put about 40 yellow flags on cells that were all correct (product names, `0`s in the SUB column). A passing check means all three numbers were read correctly: for it to pass with wrong numbers, the misreads would have to cancel out exactly, which is practically impossible. So the check is a far stronger signal than any single cell's score.
+
+---
+
+## D-022: Review window: staff answer questions from the paper and the shelf; the Excel is only written once an invoice is cleared
+
+**Status:** Accepted · 2026-10-15 (refines D-002 and D-011: flags become questions)
+
+**Context.** Flags (D-011) only help if someone acts on them, and nothing stops staff uploading a file they didn't check. The tool's memory file (`supplier_items.xlsx`) is not for humans to edit. Zein runs the shop remotely from Dubai with a co-owner on site and wants to stay out of the daily flow: staff already add new items and set retail prices today. Staff read English fine for short, simple screens. About 10 minutes of training is acceptable. A USB barcode scanner is available; it types the barcode and presses Enter, just like typing by hand.
+
+**Decision.**
+- After processing, a **review window** asks staff one question at a time. Each question shows the invoice line cropped from the scan (DI gives each cell's position) next to what the tool understood. English only, short words, big buttons.
+- **Staff resolve everything the paper or the product can answer:**
+
+  | Situation | Question |
+  |---|---|
+  | Pack size suggested | "1 unit = 24 pieces?" Yes / No → type the number |
+  | Pack size unknown or unusual | "How many pieces in 1 unit?" |
+  | Close (not exact) match, provisional match, single/pack pair | "Is it this item?" Yes / No → identify it |
+  | Identify an item | Scan or type its barcode, or search by name, or "It's a new item" |
+  | New item | Name (pre-filled), barcode of **one piece** (scan or type; the invoice may show a pack barcode), pieces per invoice unit, **retail price (required)**, category (suggested) |
+  | Non-storable pack item matched | Identify the single item instead |
+  | Line doesn't add up, or a number is unreadable | Type the numbers as printed on the paper |
+  | Invoice number not found | Type it |
+  | Printed total missing or not matching | Type the total from the paper. If it still doesn't match the lines: "a page may be missing, scan all pages and run again" |
+  | Same invoice already processed | "Already done on <date>. Only make it again if the Excel was lost and never uploaded." Skip / Make it again |
+- **No staff question for:**
+  - price changes (report only)
+  - unsupported or handwritten suppliers ("enter this one by hand")
+- An invoice's **Excel is written only when every question is answered**, to `output/Ready to upload/`, the only folder staff upload from. Unanswered questions persist and come back on the next run, so nothing depends on staff remembering a step.
+- Every screen has **"I'm not sure"**. That, and problems staff can't answer from the paper (unknown VAT code, an unexpected column filled in), put the invoice on **Zein's list**. He resolves it over AnyDesk in the same window, which has extra options for him.
+- Every answer is learned like a confirmation (D-018). The report lists what staff confirmed, and learned answers stay subject to the arithmetic and cost checks.
+- Built as a desktop window (tkinter + Pillow); no browser or server.
+
+**Alternatives considered.**
+- *Zein edits `supplier_items.xlsx`.* The file is large and awkward to edit, it keeps Zein in the daily loop, and staff must not have access.
+- *Staff correct the output Excel and the tool learns from it.* The tool can't tell a corrected file from an unchecked one.
+- *A tick column in the Excel, or "was it opened?" detection.* It shows a box was ticked, not that the paper was checked, and it's fragile.
+- *Route "No" answers and new items to Zein.* It keeps the owner in the daily loop for things staff already handle today.
+- *Skip duplicates silently.* It leaves no way to regenerate an Excel that was deleted before upload.
+
+**Reasoning.** Making the safe path the only path is stronger than detecting mistakes afterwards. Each question is something a person holding the invoice (and the product) can answer for certain. Every answer is learned, so questions get fewer each week, and Zein only hears about genuine tool failures.

@@ -11,6 +11,7 @@ SELECTION_MARKS = re.compile(r":(un)?selected:")
 class Cell:
     text: str
     confidence: float | None  # lowest word confidence inside the cell; None if the cell is empty
+    box: tuple[float, float, float, float] | None = None  # x0, y0, x1, y1 on the page (inches)
 
 
 def clean_text(text: str) -> str:
@@ -138,6 +139,9 @@ def find_table(result: dict, columns: dict[str, str], required: str) -> list[dic
         if header_row is None:
             continue
         rows = _rows(grid, mapping, words, after=header_row)
+        header = _rows(grid, mapping, words, after=header_row - 1)[:1]
+        for row in rows:  # every row carries the header's position, to show column names above a crop
+            row["_header"] = header[0]["_row"] if header else Cell("", None)
         for later in tables[t_index + 1:]:
             if later["columnCount"] != table["columnCount"]:
                 continue
@@ -145,12 +149,15 @@ def find_table(result: dict, columns: dict[str, str], required: str) -> list[dic
             first = later_grid.get(min(later_grid), {}) if later_grid else {}
             if len(_header_columns(first, columns)) >= 3:
                 break  # another headed table, not a continuation
-            rows += _rows(later_grid, mapping, words, after=-1)
+            for row in _rows(later_grid, mapping, words, after=-1):
+                row["_header"] = rows[0]["_header"] if rows else Cell("", None)
+                rows.append(row)
         return rows
     return []
 
 
 def _rows(grid, mapping, words, after: int) -> list[dict[str, Cell]]:
+    """Data rows as {field: Cell}. The key "_row" holds a Cell spanning the whole row (for cropping)."""
     rows = []
     for r in sorted(grid):
         if r <= after:
@@ -158,6 +165,17 @@ def _rows(grid, mapping, words, after: int) -> list[dict[str, Cell]]:
         row = {}
         for c, name in mapping.items():
             cell = grid[r].get(c)
-            row[name] = Cell(clean_text(cell["content"]), _cell_confidence(cell, words)) if cell else Cell("", None)
+            row[name] = Cell(clean_text(cell["content"]), _cell_confidence(cell, words), _box(cell))                 if cell else Cell("", None)
+        boxes = [b for b in (_box(cell) for cell in grid[r].values()) if b]
+        row["_row"] = Cell("", None, (min(b[0] for b in boxes), min(b[1] for b in boxes),
+                                      max(b[2] for b in boxes), max(b[3] for b in boxes)) if boxes else None)
         rows.append(row)
     return rows
+
+
+def _box(cell: dict) -> tuple[float, float, float, float] | None:
+    regions = cell.get("boundingRegions") or []
+    if not regions:
+        return None
+    xs, ys = regions[0]["polygon"][0::2], regions[0]["polygon"][1::2]
+    return min(xs), min(ys), max(xs), max(ys)

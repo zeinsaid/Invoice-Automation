@@ -10,7 +10,7 @@ import re
 import sys
 
 from ..layout import normalise_barcode, parse_number
-from ..model import RED, Flag, InvoiceLine
+from ..model import InvoiceLine
 from . import base
 
 SUPPLIER = "Cosmos Tobacco Trading LTD"
@@ -28,6 +28,7 @@ COLUMNS = {
     "total": r"ΣYNOΛO|TOTAL",
 }
 REQUIRED = "barcode"
+EDITABLE = {"qty": "ΠΟΣ. (quantity)", "price": "ΤΙΜΗ (price)", "disc": "ΕΚΠΤ (discount %)", "total": "ΣΥΝΟΛΟ (total)"}
 NUMBER = [r"(\d{8,})\s*\(\s*[ΑA][ΡP]\.?\s*[ΕE][ΚK]"]  # '72100058162 (Αρ. Εκτύπωσης: 1)'
 DATE = [r"ΠΑΡΑΣΤΑΤΙΚΟΥ:?\s*(\d{2}/\d{2}/\d{4})"]
 TOTAL = [r"TOTAL EURO\s*(\d+[.,]\d{2})"]
@@ -37,8 +38,8 @@ def matches(page_text: str) -> bool:
     return "COSMOS TOBACCO" in page_text.upper()
 
 
-def parse(result, source, page_index):
-    return base.parse(sys.modules[__name__], result, source, page_index)
+def parse(result, source, page_index, corrections=None):
+    return base.parse(sys.modules[__name__], result, source, page_index, corrections)
 
 
 def row_to_line(row) -> InvoiceLine | None:
@@ -53,7 +54,7 @@ def row_to_line(row) -> InvoiceLine | None:
     disc = (parse_number(row["disc"].text) or 0.0) / 100
 
     if None in (qty, price, total):
-        flags.append(Flag(RED, "quantity", "Quantity, price or total could not be read."))
+        flags.append(base.unreadable_flag("Quantity, price or total"))
         qty, price = qty or 0, price or 0
     else:
         check = base.arithmetic_flag(f"{qty:g} x {price:.3f} plus VAT", qty * price * (1 - disc) * (1 + vat / 100), total)

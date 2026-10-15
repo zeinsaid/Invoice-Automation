@@ -11,7 +11,7 @@ import re
 import sys
 
 from ..layout import normalise_barcode, parse_number
-from ..model import RED, Flag, InvoiceLine
+from ..model import RED, ZEIN, Flag, InvoiceLine
 from . import base
 
 SUPPLIER = "Phoenicia Fereos Cyprus Ltd"
@@ -28,6 +28,7 @@ COLUMNS = {
     "vat": r"Φ|D\.N\.A|\(%\)",
 }
 REQUIRED = "qty_a"
+EDITABLE = {"qty_a": "ΠΟΣ. A (quantity)", "price_a": "ΤΙΜΗ A (price)", "disc": "ΕΚΠΤ. (discount €)", "total": "ΣΥΝΟΛΟ (total)"}
 NUMBER = [r"Document No:?\s*(S\d{8,})", r"(S\d{8,})\s*\(\s*[ΑA][ΡP]"]  # the layout differs between print runs
 DATE = [r"Date:?\s*(\d{2}/\d{2}/\d{4})", r"S\d{8,}\s*\([^)]*\)\s*(\d{2}/\d{2}/\d{4})"]
 TOTAL = [r"TOTAL EURO\s*(\d+[.,]\d{2})"]
@@ -38,8 +39,8 @@ def matches(page_text: str) -> bool:
     return any(m in text for m in MARKERS)
 
 
-def parse(result, source, page_index):
-    return base.parse(sys.modules[__name__], result, source, page_index)
+def parse(result, source, page_index, corrections=None):
+    return base.parse(sys.modules[__name__], result, source, page_index, corrections)
 
 
 def row_to_line(row) -> InvoiceLine | None:
@@ -55,9 +56,9 @@ def row_to_line(row) -> InvoiceLine | None:
 
     if parse_number(row["qty_b"].text):
         flags.append(Flag(RED, "quantity", "Quantity in unit B is filled in. That has never happened before; "
-                                           "check how many pieces this is."))
+                                           "check how many pieces this is.", ZEIN))
     if None in (qty, price, total):
-        flags.append(Flag(RED, "quantity", "Quantity, price or total could not be read."))
+        flags.append(base.unreadable_flag("Quantity, price or total"))
         qty, total = qty or 0, total or 0
     else:
         check = base.arithmetic_flag(f"{qty:g} x {price:.3f} - {discount:.2f}", qty * price - discount, total)

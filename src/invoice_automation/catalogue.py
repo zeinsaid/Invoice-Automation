@@ -43,9 +43,14 @@ class Catalogue:
         self.category_codes = category_codes  # category name -> code
         self.supplier_codes = supplier_codes  # supplier name -> code
         self.by_barcode: dict[str, list[str]] = {}
+        self.name_keys: dict[str, str] = {}  # code -> name_key(description), computed once
         for item in items.values():
-            if item.barcode:
-                self.by_barcode.setdefault(item.barcode, []).append(item.code)
+            self._index(item)
+
+    def _index(self, item: Item) -> None:
+        if item.barcode:
+            self.by_barcode.setdefault(item.barcode, []).append(item.code)
+        self.name_keys[item.code] = name_key(item.description)
 
     @classmethod
     def load(cls, powersoft_dir: Path = POWERSOFT_DIR) -> "Catalogue":
@@ -82,8 +87,7 @@ class Catalogue:
             return
         item.local = True
         self.items[item.code] = item
-        if item.barcode:
-            self.by_barcode.setdefault(item.barcode, []).append(item.code)
+        self._index(item)
 
     def highest_numeric_code(self) -> int:
         return max((int(c) for c in self.items if c.isdigit()), default=0)
