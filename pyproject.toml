@@ -6,7 +6,13 @@ authors = [
     { name = "Zein Said", email = "92037684+Zein2002@users.noreply.github.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "azure-ai-documentintelligence>=1.0.2",
+    "openpyxl>=3.1.5",
+    "pymupdf>=1.28.2",
+    "python-dotenv>=1.2.4",
+    "rapidfuzz>=3.14.6",
+]
 
 [project.scripts]
 invoice-automation = "invoice_automation:main"
