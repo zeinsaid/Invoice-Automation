@@ -18,13 +18,15 @@ Numbered record of design decisions: what was decided, why, and what else was co
 | D-010 | Check that each invoice's lines add up to its printed total | Accepted |
 | D-011 | Flag, don't guess: colour-coded cells plus a run report; new items are always red | Accepted |
 | D-012 | Unknown products become new item rows with the next item code; retail price left for a human | Accepted |
-| D-013 | Out of scope: credit notes/returns, handwritten invoices, automatic upload | Accepted |
+| D-013 | Out of scope: handwritten invoices (ED Sport, Aristidou), automatic upload; every input PDF is treated as an invoice | Accepted (amended 2026-10-15) |
 | D-014 | Real shop data stays local and git-ignored; anything public is synthetic | Accepted |
 | D-015 | Supplier rollout order: Athenites first, then cigarette suppliers, then the rest | Accepted |
 | D-016 | Python 3.12 + uv, src layout; runs from the Deep Freeze ThawSpace drive | Accepted |
 | D-017 | Two-stage output: `To Check` → `Uploaded`; masters and mappings only change once a file is marked uploaded | Rejected |
 | D-018 | The PowerSoft item export is the catalogue; one supplier-items table replaces the 23 masters; no approval step | Accepted |
 | D-019 | One-off PowerSoft cleanup via a reviewed "modify items" upload, before building the tool | Accepted |
+| D-020 | Athenites profile: barcode = purchase unit, VAT-inclusive amounts, pack factor learned per barcode | Accepted |
+| D-021 | Use `prebuilt-layout` only; the supplier profile interprets the table | Accepted |
 
 ---
 
@@ -67,7 +69,7 @@ There are no options, menus or prompts. Technical detail (errors, what was flagg
 
 ## D-003: Azure Document Intelligence for extraction, not a vision LLM
 
-**Status:** Accepted · 2026-10-14 (which DI model to use is still open, see below)
+**Status:** Accepted · 2026-10-14 (the model question below was resolved by D-021: `prebuilt-layout` only)
 
 **Context.** The invoices are image-only scans (no text layer), skewed and slightly noisy, in Greek, English or both, with very different layouts per supplier. A wrong quantity is the worst possible error.
 
@@ -132,6 +134,8 @@ If a factor can't be determined, the line is **flagged, never guessed**.
 
 **Known risk (deferred).** Supplier conventions can drift. For example, the same Hell energy drink might be billed as one 24-pack on one invoice and as 24 cans on another. Mitigations to design later: compare the converted line against the printed line total (D-010), and flag a line when its implied per-piece cost is far from the master cost.
 
+**Amendment (2026-10-15): quantities always go to the storable item.** Some products exist in PowerSoft both as a single piece and as a pack (water 6-packs, beer 8-packs). The pack is set up as a **non-storable sub-item** that deducts from the single piece's stock when sold. The tool therefore always outputs the **storable** item, and never a non-storable one. A product bought as a pack is converted to pieces of the storable item. Items that exist as both single and pack but are *both* storable (e.g. Kinder Delice 177 bar / 1399 box) are a set-up problem. Zein is resolving them with staff (disable one, or make the pack a sub-item). Until then, the tool flags any line that matches either one of such a pair.
+
 ---
 
 ## D-006: Matching order: learned mapping → barcode → fuzzy name → LLM suggestion (always flagged)
@@ -155,6 +159,10 @@ Only steps 1–2 are trusted automatically. Results from steps 3–4 are written
 - *LLM first.* Slower, costs money, and can't explain its choices. Better kept as the last resort.
 
 **Reasoning.** The cheapest, most certain signal goes first. The mapping file means each supplier/product pair only needs a human once.
+
+**Barcode normalisation (2026-10-15).** Before comparing, barcodes are stripped of spaces and line breaks (Cosmos wraps 13-digit barcodes across two lines inside a cell) and of a trailing `-n`. Cosmos prints 8-digit barcodes as e.g. `40331423-n`; with the suffix removed, all 11 lines on the sample match PowerSoft exactly.
+
+**Supplier wording vs PowerSoft wording.** When a barcode matches but the supplier's name differs (Athenites "DORITOS THAI SRIRACHA 90GR" = PowerSoft "DORITOS F1 Drive Mode 90G"; the pack says F1 Drive Mode), the supplier's wording is stored in the supplier-items table. No catalogue change is needed.
 
 ---
 
@@ -224,6 +232,8 @@ Only steps 1–2 are trusted automatically. Results from steps 3–4 are written
 
 **Reasoning.** It is an independent check that is almost free and catches exactly the errors that are otherwise silent: a missed row or a misread quantity.
 
+**Amendment (2026-10-15): missing total = possibly missing page.** The tool always computes the total itself from the lines. If no printed total is found (e.g. page 2 of a long Athenites invoice was not scanned, as on the first sample), the invoice is flagged **red**: "Total not found. Were all pages scanned?". Page 2 may hold more lines, so the file may be incomplete.
+
 ---
 
 ## D-011: Flag, don't guess: colour-coded cells plus a run report; new items are always red
@@ -287,16 +297,20 @@ No separate new-items file is needed.
 
 ---
 
-## D-013: Out of scope: credit notes/returns, handwritten invoices, automatic upload
+## D-013: Out of scope: handwritten invoices (ED Sport, Aristidou), automatic upload; every input PDF is treated as an invoice
 
-**Status:** Accepted · 2026-10-14
+**Status:** Accepted · 2026-10-14 · amended 2026-10-15
 
 **Decision.** The tool does not handle:
-- credit notes/returns (staff handle them directly)
-- handwritten invoices (currently only ED Sport, which is rare)
-- PowerSoft upload or API (D-001)
+- **credit notes/returns.** Staff never put them in `input/`; returns are edited by hand in PowerSoft, which has no Excel upload for them. The tool therefore **assumes every page is an invoice** and does no credit-note detection. (Pambos and Rainbow print "Credit Invoice", meaning *sold on credit*, so detecting the word "credit" would have been wrong anyway.)
+- **handwritten invoices:**
+  - **ED Sport:** rare, and the names can't be matched without seeing the stock.
+  - **Aristidou (Aqua water):** set aside for now. It is a pre-printed form with handwritten quantities, almost always the same two items, so it is faster for staff to do by hand than for the tool to read it.
+- **PowerSoft upload or API** (D-001).
 
-When it recognises one of these, it skips the page and says so in the report instead of failing.
+**On probation: Asian Food Market.** A thermal till receipt with shortened names and no barcodes, which can group flavours into one line (e.g. "Bulldog"). It stays in scope until Zein checks with staff whether lines are reliable enough. If not, it joins the list above.
+
+When the tool recognises an out-of-scope supplier, it skips the page and says so in the report ("Aristidou: please enter by hand") instead of failing.
 
 **Reasoning.** Each one adds a lot of complexity for very little volume. Excluding them keeps the core reliable.
 
@@ -331,7 +345,7 @@ When it recognises one of these, it skips the page and says so in the report ins
 
 **Decision.** Supplier profiles, tests and accuracy work are prioritised in that order. Athenites gets the strictest settings: higher match thresholds, and anything below "certain" is flagged.
 
-**Note.** There is currently **no Athenites sample invoice**. Collecting several is the first blocker for real testing.
+**Note (updated 2026-10-15).** One Athenites sample is in `data/samples/` (49 lines). Its second page, which holds the totals, is being re-scanned. Zein says Athenites invoices don't vary in layout, so one sample is enough to start, and more will be collected for evaluation.
 
 ---
 
@@ -478,3 +492,77 @@ Outputs (git-ignored, `data/powersoft_fix/`, deleted after the upload on 2026-10
 - Rows it writes don't need them.
 
 The 11 VAT corrections were made by hand and verified in the second 2026-10-14 export. `MASTER_ITEM_LIST.xlsx` is rebuilt from that export exactly as exported.
+
+---
+
+## D-020: Athenites profile: barcode = purchase unit, VAT-inclusive amounts, pack factor learned per barcode
+
+**Status:** Accepted · 2026-10-15
+
+**Context.** Shop staff collect Athenites orders in person. Athenites prepares the order, but it goes through their normal checkout till, so the invoice is the same till printout any customer gets. A check of the first sample (49 lines) against the PowerSoft catalogue found:
+- **38 of 49 barcodes match a PowerSoft item exactly.** All 11 that don't are multipacks: Monster and Hell cases, Schweppes 6-packs, Perrier 4-packs, Kinder 3-packs.
+- **The printed barcode is whatever the Athenites cashier scanned.** If their system has the pack barcode, they scan the pack. If not, they scan one piece and multiply. So the same product can arrive either way: Monster Zero came as 24 single cans, while two other Monster products came as cases on the same invoice.
+- **Prices and line amounts include VAT.** VAT is a letter code: B = 5%, D = 19% (checked against the catalogue on every matched line).
+- **There is a discount column per line.**
+- **The printed unit price is rounded.** For Mr Brown, 8 × 4.80 = 38.40, but the line says 38.39.
+- **The till doesn't merge repeat scans.** If a cashier scans an item, then something else, then the first item again, it prints two lines.
+- Most item names in PowerSoft were originally copied from Athenites invoices, so names usually match word for word.
+- Several newer items have Athenites' VAT-inclusive price stored as their cost, because staff didn't realise the invoice includes VAT.
+
+**Decision.**
+- **Unit:** the printed barcode identifies the purchase unit. The supplier-items table (D-018) stores (Athenites, barcode) → (Item Code, pack factor). The same barcode always means the same pack, so each barcode is learned once.
+- **Cost per piece** = line amount ÷ quantity ÷ pack factor ÷ (1 + VAT rate). This uses the line amount, which is already net of the line discount, and never the printed unit price.
+- **VAT letters** map to rates in the supplier profile (B = 5%, D = 19%). An unknown letter is flagged red.
+- **Lines with the same barcode are summed** before output.
+- **Pack-factor suggestion** for a barcode not yet learned: divide the cost per invoice unit (before VAT) by the item's known cost per piece.
+  - Within ±10% of a common pack size (4, 6, 9, 12, 24) → that size is suggested, **yellow**.
+  - Any other whole number (e.g. 13) → suggested, **red**.
+  - Not near a whole number → **red**, with no suggestion.
+
+  Zein confirms each one once, and it is then remembered. The list of common sizes grows with confirmed factors.
+- **Matching** for a barcode not yet learned:
+  - an exact barcode match against PowerSoft first
+  - otherwise a fuzzy name match against Athenites' own past wording (legacy lists, then learned descriptions), then against the whole catalogue
+  - always with the strict Athenites thresholds of D-015
+  - always resolving to the storable item (D-005 amendment)
+- **Existing VAT-inclusive costs** are corrected by normal D-009 price-change handling: they show orange on the first run and appear in the price-change report.
+
+**Alternatives considered.**
+- *Read the pack size from the name ("T48", "X3", "19X165GR").* Unreliable: Duplo "T48" and Pringles "19X165GR" are billed per piece, while Kinder Delice "T10" is billed per box.
+- *Add the case barcodes to PowerSoft as extra barcodes on the single item.* Rejected by Zein: a cashier scanning a case would sell it for the price of one piece.
+- *Rely on Zein's memory of pack sizes.* That's how it's done today. The price-ratio check is the same method Zein uses to double-check without going to the storeroom, now done automatically.
+
+**Reasoning.** It turns the riskiest error (one case entered as one can) into a fact learned once per barcode, with an independent check from price. Using the line amount handles discounts and rounding in one go.
+
+---
+
+## D-021: Use `prebuilt-layout` only; the supplier profile interprets the table
+
+**Status:** Accepted · 2026-10-15 (resolves the open model question in D-003)
+
+**Context.** D-003 left open which Document Intelligence (DI) model to use. A test (`scripts/di_spike.py`) ran both candidates on the Athenites sample and compared them with a hand transcription of all 49 lines:
+- **`prebuilt-layout`:** 49/49 rows, and all 147 quantities, amounts and barcodes correct.
+  - Cell confidence (the weakest word in the cell) was 0.98 or higher on every number.
+  - The only low scores were the two cells crossed by a pen stroke (0.149 and 0.767).
+  - Pen ticks were read as checkboxes (`:selected:`) and added to descriptions.
+- **`prebuilt-invoice`:**
+  - missed 3 barcodes and added an empty row
+  - scored correct values at about 0.3, so its confidence can't separate right from wrong
+  - read the supplier name from the Greek logo
+  - did get the invoice number and date right
+
+**Decision.**
+- Each page is analysed **once, with `prebuilt-layout`**.
+- The supplier profile (D-005) says which printed column means what (by header text) and where the invoice number, date and total are.
+- Cell confidence = the lowest confidence of the words in the cell. Below a threshold (to be set from more samples; around 0.9 for Athenites) → yellow (D-011).
+- Checkbox text (`:selected:`, `:unselected:`) is removed from every cell.
+- The supplier is identified from the page text (name, VAT number), not from a model field.
+- `prebuilt-invoice` isn't used. A custom model stays an option for a supplier where layout plus a profile turns out to be insufficient.
+- Every DI response is cached on disk by file content, page and model, so re-processing or re-testing a scan costs no pages.
+
+**Alternatives considered.**
+- *`prebuilt-invoice` for the header plus `prebuilt-layout` for the lines (the earlier expectation in D-003).* It doubles page usage for two header fields that layout's text already contains, and its supplier detection was worse.
+- *`prebuilt-invoice` alone.* Lost data, and its confidence scores are unusable for flagging.
+- *Custom extraction model.* Needs about 5 labelled samples per layout and adds training and upkeep. It isn't needed while layout reads everything correctly.
+
+**Reasoning.** Layout reads what's printed and makes no guesses, and its confidence actually goes down on damaged cells. Interpreting columns in our own code keeps every supplier's rules visible and testable. One request per page also halves free-tier usage.
