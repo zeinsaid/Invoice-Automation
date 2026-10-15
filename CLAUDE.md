@@ -23,45 +23,48 @@ It's also my hands-on prep for the **Microsoft AI-103** exam (Azure AI Apps and 
 - I need to be able to explain every design choice in an interview without notes, so the "why" matters as much as the "what".
 - Ask me about the shop's real workflow when you're unsure. I know details that aren't in the files.
 
-## The project (starting point, open to refinement)
+## The project
 
-**Current manual process:** Supplier invoices arrive (scanned/PDF). Staff open that supplier's prepared Excel (one per supplier, listing all their products), type in the quantities, then upload the Excel to our POS/inventory system (PowerSoft).
+**Old manual process:** supplier invoices arrive on paper. Staff open that supplier's Excel (PowerSoft's 20-column import format), type every quantity, delete the zero rows, and upload it to PowerSoft (our POS/stock system).
 
-**Target workflow (keep it lightweight):**
-- A script runs locally on the shop PC with two folders: `input/` and `output/`.
-- Staff drop scanned invoices into `input/`.
-- The script reads each invoice, works out the supplier, fills in that supplier's Excel (mainly the quantity column), and writes it to `output/`.
-- Staff **review** the output Excel, then upload it to PowerSoft themselves. This manual check is intentional; we're not automating the upload or using the PowerSoft API.
-- Output must keep the **exact format** of the existing supplier Excels so it still imports cleanly.
-
-**Direction already discussed (to confirm with me):**
-- **Azure Document Intelligence (prebuilt invoice model)** for extraction rather than a pure vision LLM, because LLMs can misread or invent digits and a wrong quantity is the worst error. It also returns confidence scores. Volume is roughly 10–50 invoices a week, so the free tier should cover it (verify current limits).
-- **Product matching is the hard part:** invoice product names won't match our Excel/PowerSoft names exactly. Plan: fuzzy matching first, an LLM only for the leftovers, and a mapping file of confirmed matches that grows over time.
-- **Flag, don't guess:** highlight low-confidence values or unmatched products (e.g. yellow cells) so staff check them.
-- I'll explain more challenges directly in chat.
+**What the tool does now (details and reasons in DECISIONS.md):**
+- Staff put scans in `input/` and double-click **Process Invoices** (D-002).
+- Each page is read with Azure Document Intelligence `prebuilt-layout` (D-003, D-021); responses are cached so a scan is never sent twice.
+- A **supplier profile** per supplier reads its table and turns invoice units into selling pieces (D-005, D-020).
+- Lines are matched to our items: learned mapping, then barcode, then name, then similar name (D-006); every line's arithmetic and every invoice total are checked (D-010).
+- A **review window** asks staff yes/no and fill-in questions from the paper and the shelf; the PowerSoft Excel is only written, to `output/Ready to upload/`, once an invoice is cleared (D-022). Staff upload it themselves (D-001). "I'm not sure" sends it to me.
+- Everything staff confirm is learned, so questions get fewer over time (D-018).
 
 ## What's in the folder
 
-All real shop data is under `data/` (git-ignored, never commit it):
+**Code** (`src/invoice_automation/`, read the module docstrings):
+- `extract.py`: DI calls + cache · `layout.py`: tables, numbers, barcodes · `crops.py`: line pictures for the window
+- `suppliers/`: one profile per supplier on the shared `base.py`
+- `catalogue.py` (PowerSoft export), `supplier_items.py` (the learned table), `matching.py`
+- `pipeline.py` (queue, evaluate -> questions, finalize -> Excel), `session.py`, `ui.py` (the window), `output.py`
+- `tests/`: unit tests on synthetic data only. `scripts/`: one-off checks (DI model spike, layout survey).
+
+**Real shop data**, all under `data/` (git-ignored, never commit it):
 - `data/powersoft/`: PowerSoft is the source of truth for items (D-018).
   - `items_export_<date>.csv`: the latest item export, encoded cp1253. PowerSoft itself strips `& ' % ( )` from item names when it saves them, and stores costs to 2 decimals.
-  - `categories.xlsx`, `suppliers.xlsx`: code tables.
-  - `MASTER_ITEM_LIST.xlsx`: every item in the 20-column import format, for reference.
-- `data/reference/legacy_supplier_lists.xlsx`: which items each supplier sold us, at what price, under what name. Extracted from the old per-supplier Excels (now deleted); seed data for the supplier-items table.
-- `data/samples/`: real past invoices (image-only scans, some with several suppliers merged in one PDF). Use them to judge layouts, variations and edge cases.
-- Shop PC: everything the tool writes (masters, mappings, logs, input/output) lives on the Deep Freeze ThawSpace drive, never on C: (D-016).
-- There's no separate "expected output" file. The expected output is the same supplier Excel with the quantity column (and anything else I specify) filled in correctly.
-- `DECISIONS.md` holds the decision log. Read it before proposing changes.
+  - `categories.xlsx`, `suppliers.xlsx`: code tables. `MASTER_ITEM_LIST.xlsx`: every item in the import format, for reference.
+- `data/reference/legacy_supplier_lists.xlsx`: each supplier's old wording and prices; seeds the supplier-items table.
+- `data/samples/`: real invoices (one per supplier, plus older mixed scans). `data/eval/`: hand transcription of the Athenites sample.
+- `data/cache/di/`: cached DI responses (keep: re-running costs no Azure pages).
+- Created by running the tool (safe to wipe while testing): `data/supplier_items.xlsx`, `data/state/` (queue, new-item codes, processed invoices, price changes), `data/reports/`, `output/Ready to upload/`, `logs/`.
+- `data/flag_items.csv`: items that always get a question (single/pack pairs).
+
+**Docs:** `DECISIONS.md` (read it before proposing changes), `README.md`, `TODO.md` (where we left off).
 
 ## Constraints
 
 - **Privacy:** the repo may go public as a portfolio piece. Real invoices, supplier Excels and prices must **not** be committed. Keep them in a git-ignored folder and use anonymised or synthetic samples for anything public. Never commit Azure keys; use a `.env` file.
-- **Staff-friendly:** shop staff aren't technical. Running it should be close to "drop the file in, open the result". Errors should be readable, not stack traces.
-- **Runs on a Windows shop PC** (confirm with me), so keep setup simple and document it in the README.
-- Python preferred (I used `uv` for my last project).
+- **Staff-friendly:** shop staff aren't technical. English only, short words, big buttons. Errors should be readable ("contact Zein"), with details in a log, never stack traces.
+- **Runs on the Windows shop PC** with Deep Freeze: everything the tool keeps lives on the ThawSpace drive, never C: (D-016). I'm in Dubai and reach it over AnyDesk, so deployment and fixes must be simple.
+- Python 3.12 with `uv`.
+- **Azure:** my work Microsoft account, free trial subscription (billing country UAE), resource group `rg-invoice-automation`, Document Intelligence `di-theplug-invoices` on the free F0 tier in North Europe (West Europe refused new customers). Endpoint and key are in `.env`. Upgrade to pay-as-you-go before the trial ends (around 14 Nov 2026) or the resource stops.
+- **Testing the window:** never screenshot the screen (it captures whatever else is open). Capture the window itself (PrintWindow) with it nearly transparent; see TODO.md.
 
-## First steps
+## Start here
 
-1. Look through the supplier Excels and sample invoices, then summarise what you see: suppliers, layouts, how product names differ, and anything that looks tricky.
-2. Ask me the questions you need answered about the real workflow.
-3. Propose the architecture and the first DECISIONS.md entries for me to confirm.
+Read `TODO.md` for where we left off and what's next, then `DECISIONS.md`.

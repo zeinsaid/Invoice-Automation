@@ -19,17 +19,18 @@ It is slow and error-prone, and cost prices are rarely updated because checking 
 ```
 input/  (scanned PDFs, possibly several invoices per PDF)
    │
-   ├─ split into pages ─ detect supplier ─ group pages into invoices
-   ├─ Azure Document Intelligence: read lines, quantities, prices (+ confidence)
-   ├─ match each line to our item: learned mapping → barcode → fuzzy name
-   ├─ convert invoice units (cartons, cases) to selling pieces; compute per-piece cost
-   ├─ check that the lines add up to the invoice total
-   └─ write the supplier's Excel: quantities filled, zero rows removed, issues highlighted
+   ├─ split into invoices (multi-page invoices joined) ─ detect the supplier
+   ├─ Azure Document Intelligence (prebuilt-layout): read every table cell (cached)
+   ├─ supplier profile: which column is what, units -> selling pieces, cost per piece
+   ├─ match each line to our item: learned mapping → barcode → name → similar name
+   ├─ check every line's arithmetic and the invoice total
+   ├─ review window: staff answer what the tool isn't sure of, from the paper and the shelf
+   └─ write the PowerSoft import Excel once the invoice is cleared, and remember the answers
    │
-output/ (one Excel per invoice + a short report)  → a person checks it, then uploads it to PowerSoft
+output/Ready to upload/  → staff upload to PowerSoft
 ```
 
-**Flag, don't guess.** Anything uncertain is highlighted in the Excel. Yellow means check against the paper, orange means the price changed, red means contact the owner.
+**Flag, don't guess.** Nothing uncertain reaches PowerSoft: the tool asks instead, shows the line from the scan, and only writes the Excel when every question is answered. Every answer is learned, so it asks less over time.
 
 ## For shop staff
 
@@ -61,3 +62,4 @@ Real shop data (supplier Excels, invoices) lives in `data/`, which is git-ignore
 
 - [DECISIONS.md](DECISIONS.md): numbered design decisions with the reasoning behind each one
 - [CLAUDE.md](CLAUDE.md): project brief and working agreement
+- [TODO.md](TODO.md): where development left off and what's next

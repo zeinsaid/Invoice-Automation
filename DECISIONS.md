@@ -66,6 +66,8 @@ There are no options, menus or prompts. Technical detail (errors, what was flagg
 
 **Reasoning.** A double-click is the most reliable trigger a non-technical user can perform, and it is obvious whether it ran. Keeping all decisions inside the tool or with Zein matches how the shop actually works.
 
+**Update (2026-10-15):** the single "Done / Contact Zein" pop-up became the review window of D-022, which asks staff questions they can answer from the paper. Staff now resolve most issues themselves; only "I'm not sure" and tool failures reach Zein. Processed scans move to `processed/<date>/`.
+
 ---
 
 ## D-003: Azure Document Intelligence for extraction, not a vision LLM
@@ -220,6 +222,8 @@ Only steps 1–2 are trusted automatically. Results from steps 3–4 are written
 
 **Totals live in the report, not the upload file.** A "total" row in the Excel would look like an item row with no Item Code, and that could break the import. The run report shows each file's computed total next to the invoice's printed total instead.
 
+**Update (2026-10-15):** files are written to `output/Ready to upload/`, and only once every review question on the invoice is answered (D-022). File name: `<Supplier> <InvoiceNo> <Date>.xlsx`.
+
 ---
 
 ## D-009: Cost rules: per piece, before VAT, after discounts; free goods averaged in; price changes flagged and logged
@@ -273,6 +277,8 @@ Each run also writes a short report (Excel or text) listing every flag in plain 
 - *Separate "review" sheet only.* Rejected: staff look at the main sheet, so the flag must be on the cell itself.
 
 **Reasoning.** Staff aren't expected to fix anything, only to recognise "red = call Zein", "yellow/orange = compare with the paper". PowerSoft accepts files with coloured cells (confirmed by Zein 2026-10-15: highlighted files have been uploaded before). Cell comments (hover notes) are still to be checked on the first test upload.
+
+**Update (2026-10-15):** D-022 turned flags into questions. Yellow and red issues are now asked in the review window before any Excel exists, so an uploadable file normally has no yellow or red. Orange (cost changed) stays as a cell colour with a comment, and every flag still appears in Zein's run report (`data/reports/`).
 
 ---
 
@@ -384,6 +390,8 @@ When the tool recognises an out-of-scope supplier, it skips the page and says so
 - `rapidfuzz`: fuzzy matching
 
 How it gets onto the shop PC (bundled `.exe` vs. uv + launcher script) is decided when we reach deployment. Either way it lives on the ThawSpace drive.
+
+**Libraries actually used (2026-10-15):** the four above plus `python-dotenv` (reads `.env`), `pillow` (line pictures in the window), `tkinter` (the window; comes with Python) and `pytest` (tests).
 
 ---
 
