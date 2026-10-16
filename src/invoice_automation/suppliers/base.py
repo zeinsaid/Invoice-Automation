@@ -80,8 +80,13 @@ def combine(pages: list[Invoice]) -> Invoice:
     it, the total from the last page that prints one."""
     first = pages[0]
     lines = [line for p in pages for line in p.lines]
+    header = None
     for i, line in enumerate(lines, 1):
         line.line_no = str(i)
+        if line.header_box:
+            header = (line.header_box, line.page)
+        elif header:  # a page without a header row shows the last one seen, so staff see column names
+            line.header_box, line.header_page = header
     invoice = Invoice(
         supplier=first.supplier, short_name=first.short_name,
         number=next((p.number for p in pages if p.number), None),

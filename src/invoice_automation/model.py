@@ -43,7 +43,8 @@ class InvoiceLine:
     page: int = 0  # which page of the PDF the line is on
     row_index: int = -1  # position in that page's table, including non-item rows
     box: tuple[float, float, float, float] | None = None  # where the line is on the page (inches)
-    header_box: tuple[float, float, float, float] | None = None  # the table's header row on that page
+    header_box: tuple[float, float, float, float] | None = None  # the table's header row
+    header_page: int | None = None  # page of the header row, if not the line's own (a headerless page 2)
     angle: float = 0.0  # the page's rotation (degrees clockwise), for turning crops upright
     fields: dict[str, str] = field(default_factory=dict)  # the printed numbers staff may correct, as read
 

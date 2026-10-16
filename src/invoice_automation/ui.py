@@ -169,9 +169,10 @@ class App:
         parts = []
         pdf = Path(entry.file)
         if q.line is not None:
-            for box in (q.line.header_box, q.line.box):
+            header_page = q.line.page if q.line.header_page is None else q.line.header_page
+            for page, box in ((header_page, q.line.header_box), (q.line.page, q.line.box)):
                 if box:
-                    parts.append(crop(pdf, q.line.page, box, q.line.angle))
+                    parts.append(crop(pdf, page, box, q.line.angle))
         elif q.kind in ("number", "duplicate"):
             parts.append(crop(pdf, entry.pages[0], None, inv.page_angle, "top"))
         elif q.kind == "total" and inv.printed_total is not None:
