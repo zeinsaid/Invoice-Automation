@@ -9,6 +9,7 @@ A supplier module describes its invoice and turns one table row into an InvoiceL
     NUMBER, DATE, TOTAL    regex patterns (first group) for invoice number, date, printed total
     row_to_line(row)       one table row -> InvoiceLine, or None if it isn't an item row
     adjust(invoice, text)  optional: invoice-wide changes, e.g. a discount on the whole invoice
+    continuation_rows(result)  optional: rows of a later page whose table has no header row
 
 This module does the rest the same way for everyone: find the table, apply staff corrections,
 number the lines, find the header fields and the total.
@@ -30,6 +31,8 @@ def parse(profile, result: dict, source, page_index: int, corrections: dict | No
     text = result.get("content", "")
     lines = []
     rows = find_table(result, profile.COLUMNS, profile.REQUIRED)
+    if not rows and hasattr(profile, "continuation_rows"):
+        rows = profile.continuation_rows(result)  # a later page whose table has no header (D-004)
     for row_index, row in enumerate(rows):
         fixed = corrections.get(str(row_index))
         if fixed:

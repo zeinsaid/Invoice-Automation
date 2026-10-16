@@ -156,6 +156,32 @@ def find_table(result: dict, columns: dict[str, str], required: str) -> list[dic
     return []
 
 
+def headless_rows(result: dict, column_count: int, tail: list[str]) -> list[dict[str, Cell]]:
+    """Rows of a line table that has no header row, read by position (D-004 amendment 2).
+
+    Continuation pages (Athenites page 2) repeat the table without its column names, and the
+    scanner may merge neighbouring cells (description + barcode). The numbers on the right keep
+    their columns, so the last len(`tail`) cells are named by `tail`; every cell to their left is
+    joined into "_lead" for the profile to take apart. Only tables with `column_count` columns
+    are read. Rows that aren't item rows are left for the profile's row_to_line to reject.
+    """
+    words = _word_spans(result)
+    rows = []
+    for table in result.get("tables", []):
+        if table["columnCount"] != column_count:
+            continue
+        grid = _grid(table)
+        lead_columns = range(column_count - len(tail))
+        mapping = {column_count - len(tail) + i: name for i, name in enumerate(tail)}
+        for r, row in zip(sorted(grid), _rows(grid, mapping, words, after=-1)):
+            lead = [grid[r][c] for c in lead_columns if c in grid[r]]
+            confs = [c for c in (_cell_confidence(cell, words) for cell in lead) if c is not None]
+            row["_lead"] = Cell(clean_text(" ".join(cell["content"] for cell in lead)), min(confs) if confs else None)
+            row["_header"] = Cell("", None)
+            rows.append(row)
+    return rows
+
+
 def _rows(grid, mapping, words, after: int) -> list[dict[str, Cell]]:
     """Data rows as {field: Cell}. The key "_row" holds a Cell spanning the whole row (for cropping)."""
     rows = []

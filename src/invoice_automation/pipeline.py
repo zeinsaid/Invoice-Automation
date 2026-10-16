@@ -444,7 +444,7 @@ def _issue_new_item(line: InvoiceLine, inv: Invoice, form: dict, pieces_per_unit
 
 
 def suggested_category(candidates, catalogue: Catalogue) -> str:
-    """The category of the most similar existing item (D-012; an LLM suggestion may come later)."""
+    """The category of the most similar existing item (D-012; no LLM, D-006 amendment)."""
     for code, _, _ in candidates or []:
         if catalogue.items[code].category:
             return catalogue.items[code].category

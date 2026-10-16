@@ -11,7 +11,7 @@ Numbered record of design decisions: what was decided, why, and what else was co
 | D-003 | Azure Document Intelligence for extraction, not a vision LLM | Accepted |
 | D-004 | Split every PDF into single pages before processing | Accepted |
 | D-005 | Everything is stored per selling piece; invoice units are converted using supplier rules and known pack sizes | Accepted |
-| D-006 | Matching order: learned mapping → barcode → fuzzy name → LLM suggestion (always flagged); confirmed matches feed the mapping | Accepted |
+| D-006 | Matching order: learned mapping → barcode → fuzzy name; leftovers are asked; confirmed matches feed the mapping (LLM step dropped 2026-10-16) | Accepted, amended |
 | D-007 | The per-supplier master Excels are the catalogue, and the tool keeps them up to date | Superseded by D-018 |
 | D-008 | One output Excel per invoice, in the exact PowerSoft import format, with zero-quantity rows removed | Accepted |
 | D-009 | Cost rules: per piece, before VAT, after discounts; free goods averaged in; price changes flagged and logged | Accepted |
@@ -116,8 +116,10 @@ My current expectation: start with `prebuilt-invoice` for supplier and totals, u
   - a page from a known enter-by-hand supplier (ED Sport, Aristidou, Asian Food Market) always stands alone, so it is still listed as "enter by hand";
   - if the joined page gives the invoice nothing (no lines, no total), staff get one yes/no question: "Is page N part of this invoice?". No = it stands alone and is entered by hand.
 
-  The first rule is built; the join-and-confirm part will be built and tuned once the full Athenites and Agrotis scans (with page 2) arrive.
+  The first rule is built. The join-and-confirm part is deferred (amendment below).
 - Staff will normally scan one invoice per PDF, so this mostly matters when several invoices are scanned together.
+
+**Amendment (2026-10-16): the unrecognised-page rule is deferred.** The full Athenites scan showed that page 2 repeats the supplier name and invoice number, so it joins page 1 under the first rule. Page 2's table has no header row and merged cells, so it is read by position: the number columns on the right keep their place, and the cells to their left are split into description and barcode. The rule for a page no supplier recognises (join the previous invoice, ask "Is page N part of this invoice?") is not built. *Why:* no sample needs it, and suppliers generally repeat their name or the invoice number on later pages. Agrotis (stationery, less than once a month) is the only candidate, and there staff typing the total from the paper is enough. Until then, an unrecognised page stands alone and is listed as "enter by hand". *Revisit* if the report shows real continuation pages listed that way.
 
 ---
 
@@ -156,7 +158,7 @@ Cassandra's FACT is trusted outright, because cigarettes are always sold per pac
 
 ---
 
-## D-006: Matching order: learned mapping → barcode → fuzzy name → LLM suggestion (always flagged)
+## D-006: Matching order: learned mapping → barcode → fuzzy name → ask staff (LLM step dropped)
 
 **Status:** Accepted · 2026-10-14
 
@@ -183,6 +185,8 @@ Only steps 1–2 are trusted automatically. Results from steps 3–4 are written
 **Supplier wording vs PowerSoft wording.** When a barcode matches but the supplier's name differs (Athenites "DORITOS THAI SRIRACHA 90GR" = PowerSoft "DORITOS F1 Drive Mode 90G"; the pack says F1 Drive Mode), the supplier's wording is stored in the supplier-items table. No catalogue change is needed.
 
 **Amendment (2026-10-15): supplier item codes are learning keys.** Besides barcodes, the tool learns each supplier's own item code (Pambos `CRYSTALVAPE14`, Jumbo `1171628`, Vassos new code), stored in the supplier-items table next to our Item Code. *Why:* codes stay on their row even when long descriptions spill into the next one (Pambos), and they work where names are Greek abbreviations that won't match ours (Jumbo). Not every supplier prints codes, which is why our own Item Codes can't simply be the suppliers' codes. The PowerSoft export is not edited (D-018): the link between supplier codes and our codes lives only in the supplier-items table.
+
+**Amendment (2026-10-16): the LLM step is dropped.** Matching is learned mapping → barcode/supplier code → fuzzy name; anything left is asked of staff, and the answer is learned (D-018). *Why:* (1) an LLM match would always be flagged, so it can't save a question, only improve the suggestion; (2) on the full Athenites sample, every unmatched line (5 of 76) was a product we don't stock, which no matcher can find; (3) misses are one-off, because the confirmed answer becomes a learned mapping; (4) it would add an Azure OpenAI resource, a per-call cost, non-deterministic results and another failure point to a tool that has to run unattended. The same goes for the suggested category of a new item (D-012): it is taken from the most similar existing item. *Alternative considered:* keep it as a suggestion source for Greek or abbreviated names; supplier codes as learning keys already cover those. *Revisit* if the reports show many "not found" questions for items that do exist under very different wording.
 
 ---
 
@@ -265,7 +269,7 @@ Only steps 1–2 are trusted automatically. Results from steps 3–4 are written
 **Status:** Accepted · 2026-10-14
 
 **Decision.**
-- **Yellow:** check against the paper. Low DI confidence, or a fuzzy/LLM match.
+- **Yellow:** check against the paper. Low DI confidence, or a fuzzy match.
 - **Orange:** cost changed (D-009).
 - **Red:** do not upload; contact Zein. Unmatched product, **any new item** (even with a retail price filled in), unknown pack factor, or invoice total mismatch.
 
@@ -290,7 +294,7 @@ Each run also writes a short report (Excel or text) listing every flag in plain 
 
 **Decision.** When an invoice line matches nothing (after D-006):
 - create a full row with Item Code = highest known + 1, filled from the invoice (description, barcode, supplier code/name, cost, VAT %)
-- fill in a **suggested category** (LLM, from the description, chosen from the existing category list), flagged for checking
+- fill in a **suggested category** (from the most similar existing item; see the D-006 amendment), flagged for checking
 - leave **Retail price empty** (PowerSoft accepts a blank, but then asks the cashier for a price at every sale, which is only meant for things like printing)
 - the whole row is **red** (D-011)
 
@@ -449,7 +453,7 @@ Zein also rejected D-017: staff must not have any step they can forget.
 4. **No approval step; staff only use `input/` and `output/`.** Each kind of learning has its own safe rule:
    - **Costs:** the invoice is the truth whether or not it gets uploaded, so the supplier's last cost updates immediately.
    - **Barcode matches:** certain, so they are learned immediately.
-   - **Fuzzy/LLM matches:** stored as *provisional* (still yellow on later invoices). They are promoted to *trusted* when the invoice they came from passes the total check (D-010) **and** the implied per-piece cost is within ±15% of the item's known cost, or when Zein confirms them.
+   - **Fuzzy matches:** stored as *provisional* (still yellow on later invoices). They are promoted to *trusted* when the invoice they came from passes the total check (D-010) **and** the implied per-piece cost is within ±15% of the item's known cost, or when Zein confirms them.
    - **New items:** red the **first** time (D-011). The tool then adds the item to its own *local additions* list, which is merged on top of the export, so later invoices match it without Zein having to re-export. When a fresh export contains the code, the local entry is dropped. (Amended: Zein doesn't want to re-export for every new item.) The code ledger (D-012) means a never-uploaded item can't cause a clash.
    - **Duplicate scans:** the tool keeps a log of processed invoices (supplier + invoice number). If the same invoice is dropped in twice, it is flagged red instead of producing a second file that would double the stock.
 5. **Invoices also correct item details.** When an invoice disagrees with the catalogue on more than cost, the run report lists it as a suggested PowerSoft fix (e.g. a different supplier, VAT rate or barcode). The tool doesn't edit item data itself (point 1). Many details in PowerSoft were entered by hand and may be wrong; the invoice is the truth.

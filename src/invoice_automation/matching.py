@@ -8,7 +8,7 @@ Order, cheapest and most certain first:
 4. fuzzy:    the most similar name, above a strict threshold; always asked in the review window
 Anything else is a new item (D-012).
 
-The LLM suggestion step (D-006 step 4) is not built yet.
+There is no LLM step: lines nothing matches are asked of staff (D-006 amendment).
 """
 
 from dataclasses import dataclass, field
