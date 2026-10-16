@@ -13,6 +13,8 @@ from pathlib import Path
 import openpyxl
 
 POWERSOFT_DIR = Path("data/powersoft")
+EXPORT_COLUMNS = ["Item Code", "Item Description", "Barcode", "VAT", "Cost", "Price 1", "Supplier", "Brand",
+                  "Category", "Storable"]
 
 
 @dataclass
@@ -63,6 +65,10 @@ class Catalogue:
             reader = csv.reader(f)
             header = next(reader)
             col = {name: i for i, name in enumerate(header)}
+            missing = [c for c in EXPORT_COLUMNS if c not in col]
+            if missing:  # e.g. an export made without the Storable column (D-005: needed to never touch packs)
+                raise ValueError(f"{exports[-1].name} has no {', '.join(missing)} column. Export the items again "
+                                 f"with these columns: {', '.join(EXPORT_COLUMNS)}.")
             for row in reader:
                 code = row[col["Item Code"]].strip()
                 if not code or row[col["Item Description"]] == "":
