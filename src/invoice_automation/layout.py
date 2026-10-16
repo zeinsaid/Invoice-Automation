@@ -20,15 +20,16 @@ def clean_text(text: str) -> str:
 
 
 def parse_number(text: str) -> float | None:
-    """Read a printed number: '1,234.50', '2,51249' (comma decimal), '-11.80', '5 774' (space for dot)."""
+    """Read a printed number: '1,234.50', '1.234,50' and '2,51249' (comma decimal: Jumbo, Vassos),
+    '-11.80', '5 774' (space for dot)."""
     s = clean_text(text).replace("€", "").replace("%", "").strip()
     if not s:
         return None
     if re.fullmatch(r"-?\d+ \d{3}", s):  # '5 774': a dot read as a space
         s = s.replace(" ", ".")
     s = s.replace(" ", "")
-    if "," in s and "." in s:  # thousands separator plus decimal point
-        s = s.replace(",", "")
+    if "," in s and "." in s:  # thousands separator plus decimal point: the last one is the decimal
+        s = s.replace(".", "").replace(",", ".") if s.rfind(",") > s.rfind(".") else s.replace(",", "")
     elif "," in s:  # comma used as the decimal point (Jumbo, Vassos)
         s = s.replace(",", ".")
     try:

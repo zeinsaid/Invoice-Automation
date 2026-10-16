@@ -23,6 +23,7 @@ from .supplier_items import TRUSTED, SupplierItems
 FUZZY_THRESHOLD = 90  # strict, for Athenites (D-015); 0-100 similarity
 COMMON_PACK_SIZES = (3, 4, 6, 9, 12, 24)  # D-020; grows as Zein confirms others
 PACK_TOLERANCE = 0.10  # the price ratio must be within 10% of a whole pack size
+EXACT_TOLERANCE = 0.01  # within 1% of a whole number (costs are kept to 2 decimals, about 0.6% rounding), that number is almost certainly the pack size
 # A barcode match priced at this many times the known cost or more is a pack, not one piece.
 # Below it, the difference is a price change (or an old VAT-inclusive cost) and goes to the report.
 MULTIPACK_RATIO = 1.5
@@ -57,6 +58,8 @@ def match_line(line: InvoiceLine, supplier: str, invoice_no: str, catalogue: Cat
             m.flags.append(Flag(YELLOW, "item", "Matched on an earlier invoice, not yet confirmed.", MATCH))
         if m.pack_factor is None:
             suggest_pack(m, line, supplier, invoice_no, catalogue, table)
+        else:
+            _recheck_learned(m, line, supplier, invoice_no, catalogue, table)
         return m
 
     # 2. Barcode is in PowerSoft. The item is certain; the pack size is 1, unless the invoice prints one
@@ -68,8 +71,8 @@ def match_line(line: InvoiceLine, supplier: str, invoice_no: str, catalogue: Cat
         m = Match(storable[0], 1, "barcode", candidates=[(c, catalogue.items[c].description, 100) for c in storable])
         if len(storable) > 1:
             m.flags.append(Flag(YELLOW, "item", f"Barcode {barcode} is on several items ({', '.join(storable)}).", MATCH))
-        ratio = _price_ratio(m.item_code, line, supplier, invoice_no, catalogue, table)
-        if line.printed_factor or (ratio is not None and ratio >= MULTIPACK_RATIO):
+        ratios = _ratios(m.item_code, line, supplier, invoice_no, catalogue, table)
+        if line.printed_factor or (ratios and min(ratios) >= MULTIPACK_RATIO):
             m.pack_factor = None
             suggest_pack(m, line, supplier, invoice_no, catalogue, table)
         return m
@@ -139,55 +142,104 @@ def _similarity(a: str, b: str, **_) -> float:
     return max(fuzz.ratio(a, b), fuzz.token_sort_ratio(a, b))
 
 
-def _reference_and_price(code, line, supplier, invoice_no, catalogue, table) -> tuple[float | None, float | None]:
-    """Known cost of one piece, and the invoice price of one unit (both before VAT)."""
-    reference = table.last_cost(supplier, code, invoice_no) or catalogue.items[code].cost
-    unit_price = line.list_price_excl_vat
-    if unit_price is None and line.quantity:
-        unit_price = line.amount_excl_vat / line.quantity
-    return reference, unit_price
+def _references(code, supplier, invoice_no, catalogue, table) -> list[float]:
+    """Known costs of one piece: this supplier's last cost, then PowerSoft's. With two, a promotion on
+    the last invoice or an out-of-date PowerSoft cost only spoils one of them."""
+    refs = []
+    for ref in (table.last_cost(supplier, code, invoice_no), catalogue.items[code].cost):
+        if ref and ref not in refs:
+            refs.append(ref)
+    return refs
 
 
-def _price_ratio(code, line, supplier, invoice_no, catalogue, table) -> float | None:
-    reference, unit_price = _reference_and_price(code, line, supplier, invoice_no, catalogue, table)
-    return unit_price / reference if reference and unit_price else None
+def _unit_price(line: InvoiceLine) -> float | None:
+    """Invoice price of one unit, before VAT."""
+    if line.list_price_excl_vat is not None:
+        return line.list_price_excl_vat
+    return line.amount_excl_vat / line.quantity if line.quantity else None
+
+
+def _ratios(code, line, supplier, invoice_no, catalogue, table) -> list[float]:
+    """How many known pieces the invoice unit costs, once per reference cost."""
+    unit_price = _unit_price(line)
+    refs = _references(code, supplier, invoice_no, catalogue, table)
+    return [unit_price / ref for ref in refs] if unit_price else []
+
+
+def _near(ratio: float, size: float) -> bool:
+    return abs(ratio - size) <= PACK_TOLERANCE * size
+
+
+def _recheck_learned(m: Match, line: InvoiceLine, supplier, invoice_no, catalogue, table) -> None:
+    """A learned pack size is checked by price like everything else (D-020 amendment). If the price
+    no longer fits it against either known cost (the supplier changed the box from 24 to 12, or the
+    first answer was wrong), the question is asked again; the new answer replaces the old one."""
+    if line.pieces_known or not m.pack_factor:
+        return
+    ratios = _ratios(m.item_code, line, supplier, invoice_no, catalogue, table)
+    if not ratios or any(1 / MULTIPACK_RATIO < r / m.pack_factor < MULTIPACK_RATIO for r in ratios):
+        return
+    learned = m.pack_factor
+    m.pack_factor = None
+    suggest_pack(m, line, supplier, invoice_no, catalogue, table)
+    note = f"Last time 1 unit was {learned:g} pieces, but the price has changed a lot. Count again."
+    pack = next((f for f in m.flags if f.kind == PACK), None)
+    if pack:
+        pack.message = f"{note} {pack.message}"
+    else:
+        m.flags.append(Flag(YELLOW, "quantity", note, PACK, {"suggested": m.pack_factor}))
 
 
 def suggest_pack(m: Match, line: InvoiceLine, supplier, invoice_no, catalogue, table) -> None:
-    """Pack factor = invoice unit price / known cost of one piece (D-020)."""
+    """Pack factor = invoice unit price / known cost of one piece (D-020).
+
+    Checked against both known costs (_references). A normal size (COMMON_PACK_SIZES) within the
+    tolerance is preferred over the nearest whole number: 25.5x one piece suggests 24, not 26.
+    Anything else is still asked, never assumed.
+    """
     if line.pieces_known:  # the invoice printed the pack size; quantity is already in pieces
         m.pack_factor = 1
         return
-    reference, unit_price = _reference_and_price(m.item_code, line, supplier, invoice_no, catalogue, table)
+    unit_price = _unit_price(line)
     if not unit_price and line.quantity:  # free goods: no price to compare, so staff confirm the size
         m.flags.append(Flag(YELLOW, "quantity", "Free goods (no price), so the pack size can't be checked.", PACK,
                             {"suggested": line.printed_factor or 1}))
         return
-    if not reference or not unit_price:
+    ratios = _ratios(m.item_code, line, supplier, invoice_no, catalogue, table)
+    if not ratios:
         m.flags.append(Flag(RED, "quantity", "Pack size unknown (no known cost to compare with).", PACK,
                             {"suggested": line.printed_factor}))
         return
-    ratio = unit_price / reference
-    nearest = max(1, round(ratio))
-    close = abs(ratio - nearest) <= PACK_TOLERANCE * nearest
     printed = line.printed_factor
-    if printed and abs(ratio - printed) <= PACK_TOLERANCE * printed:
-        m.pack_factor = printed  # the invoice prints the pack size and the price confirms it
-    elif printed and printed > 1 and close and nearest == 1:
-        m.pack_factor = 1  # printed as a pack, but our item is the whole pack (priced like one piece)
-    elif printed:
-        # The price doesn't confirm the printed size (e.g. our cost is out of date): suggest what the
-        # paper says, and let staff confirm.
-        m.pack_factor = printed
-        m.flags.append(Flag(YELLOW, "quantity", f"The invoice says {printed:g} per unit, but the price looks like "
-                                                f"{ratio:.1f}. Check on the box.", PACK, {"suggested": printed}))
-    elif close and nearest == 1:
+    if printed:
+        if any(_near(r, printed) for r in ratios):
+            m.pack_factor = printed  # the invoice prints the pack size and the price confirms it
+        elif printed > 1 and any(_near(r, 1) for r in ratios):
+            m.pack_factor = 1  # printed as a pack, but our item is the whole pack (priced like one piece)
+        else:
+            # The price doesn't confirm the printed size (e.g. our cost is out of date): suggest what the
+            # paper says, and let staff confirm.
+            m.pack_factor = printed
+            m.flags.append(Flag(YELLOW, "quantity", f"The invoice says {printed:g} per unit, but the price looks like "
+                                                    f"{ratios[0]:.1f}. Check on the box.", PACK, {"suggested": printed}))
+        return
+    if any(_near(r, 1) for r in ratios):
         m.pack_factor = 1
-    elif close and nearest in COMMON_PACK_SIZES:
-        m.pack_factor = nearest
-        m.flags.append(Flag(YELLOW, "quantity", f"Looks like a pack of {nearest} (price is {ratio:.1f}x one piece).",
-                            PACK, {"suggested": nearest}))
-    elif close:
+        return
+    # An almost exact whole number wins (13.0x is 13, not the normal 12; 25.6x is not 26); among several, a normal size.
+    exact = [(r, round(r)) for r in ratios if abs(r - round(r)) <= EXACT_TOLERANCE * round(r)]
+    exact.sort(key=lambda c: c[1] not in COMMON_PACK_SIZES)
+    common = next(((r, size) for r in ratios for size in COMMON_PACK_SIZES if _near(r, size)), None)
+    best = exact[0] if exact else common
+    if best and best[1] in COMMON_PACK_SIZES:
+        ratio, size = best
+        m.pack_factor = size
+        m.flags.append(Flag(YELLOW, "quantity", f"Looks like a pack of {size} (price is {ratio:.1f}x one piece).",
+                            PACK, {"suggested": size}))
+        return
+    ratio = best[0] if best else ratios[0]
+    nearest = max(1, round(ratio))
+    if _near(ratio, nearest):
         m.pack_factor = nearest
         m.flags.append(Flag(RED, "quantity", f"Possibly a pack of {nearest} (price is {ratio:.1f}x one piece), "
                                              "an unusual size.", PACK, {"suggested": nearest}))

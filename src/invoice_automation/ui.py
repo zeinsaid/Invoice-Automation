@@ -13,9 +13,10 @@ from tkinter import messagebox, ttk
 
 from PIL import Image, ImageTk
 
+from .catalogue import name_key
 from .crops import crop
 from .extract import analyze_page
-from .layout import parse_number
+from .layout import ean_is_valid, parse_number
 from .pipeline import DONE, MANUAL, NEW, PENDING, READY_DIR, RESCAN, SKIPPED, ZEIN_LIST, search_items, suggested_category
 from .session import Session, _where
 
@@ -94,6 +95,10 @@ class App:
         self.session.answer(entry, question, value)
         self.next()
 
+    def go_back(self):
+        self.session.undo(self.current[0])
+        self.next()
+
     def not_sure(self):
         entry, _, question = self.current
         if messagebox.askyesno("Not sure", "Send this invoice to Zein?\n\nDo not upload it. Zein will finish it."):
@@ -152,6 +157,8 @@ class App:
 
         bottom = tk.Frame(self.body, bg="white")
         bottom.pack(side="bottom", fill="x")
+        if entry.answers:
+            self.button(bottom, "< Previous question", self.go_back, size=11)
         if self.session.zein:
             self.button(bottom, "Take out (enter by hand)", lambda: self._zein(self.session.drop), size=11)
             self.button(bottom, "Start this invoice again", lambda: self._zein(self.session.restart), size=11)
@@ -228,12 +235,26 @@ class App:
         error = self.label(area, "", 12, color=RED_BG)
 
     def ask_item(self, area, entry, ev, q):
-        self.label(area, f"Invoice says:   {q.line.description}", 15)
-        self.label(area, f"Our item:          {q.data['description']}   (code {q.data['code']})", 15, True, pady=(0, 8))
+        # Words that differ are red, so 'A2' vs 'A3' or 'Black' vs 'Blue' can't be missed.
+        self._compare(area, "Invoice says:", q.line.description, q.data["description"])
+        self._compare(area, "Our item:", q.data["description"], q.line.description, f"(code {q.data['code']})")
+        tk.Frame(area, bg="white", height=8).pack()
         row = tk.Frame(area, bg="white")
         row.pack(anchor="w")
         self.button(row, "YES", lambda: self.answer("yes"), GREEN)
         self.button(row, "NO", lambda: (row.destroy(), self._identify(area, entry, ev, q, allow_new=True)), RED_BG)
+
+    def _compare(self, area, title, text, other, suffix=""):
+        row = tk.Frame(area, bg="white")
+        row.pack(anchor="w")
+        tk.Label(row, text=title, font=(FONT, 15), bg="white", width=13, anchor="w").pack(side="left")
+        others = set(name_key(other).split())
+        for word in text.split():
+            differs = any(part not in others for part in name_key(word).split())
+            tk.Label(row, text=word, font=(FONT, 15, "bold" if differs else "normal"), bg="white",
+                     fg=RED_BG if differs else "black").pack(side="left", padx=(0, 5))
+        if suffix:
+            tk.Label(row, text=suffix, font=(FONT, 13), fg=GREY, bg="white").pack(side="left", padx=(6, 0))
 
     def ask_identify(self, area, entry, ev, q):
         self.label(area, f"Invoice says:   {q.line.description}", 15, pady=(0, 6))
@@ -264,6 +285,10 @@ class App:
                     self.button(found, "It is a NEW item", lambda: self._new_item(area, entry, ev, q, code), size=12)
                 return
             item = catalogue.items[codes[0]]
+            if not item.storable:
+                self.label(found, f"'{item.description}' holds no stock. Scan the barcode of ONE piece.", 13,
+                           color=RED_BG)
+                return
             self.label(found, f"Found:  {item.description}   (code {item.code})", 15, True)
             self.button(found, "Yes, this one", lambda: self.answer({"code": item.code}), GREEN, size=12)
 
@@ -327,16 +352,37 @@ class App:
             widget.grid(row=row, column=1, sticky="w", pady=4)
             return widget
 
-        fields["description"] = add(0, "Name", self.entry_box(form, q.line.description, width=36))
+        line = q.line
+        barcode = barcode or (line.barcode if ean_is_valid(line.barcode) else "")  # from the invoice; editable
+        fields["description"] = add(0, "Name", self.entry_box(form, line.description, width=36))
         fields["barcode"] = add(1, "Barcode of ONE piece\n(scan or type)", self.entry_box(form, barcode, width=20))
-        fields["pieces"] = add(2, f"Pieces in 1 unit on the\ninvoice (1 if single)", self.entry_box(form, "1", width=6))
+        fields["pieces"] = add(2, "How many do you sell from\n1 unit on the invoice?", self.entry_box(form, "1", width=6))
         fields["price"] = add(3, "Selling price € (with VAT)", self.entry_box(form, "", width=8))
         category = ttk.Combobox(form, values=categories, state="readonly", font=(FONT, 13), width=30)
         suggestion = suggested_category(q.data.get("candidates"), ctx.catalogue)
         if suggestion in categories:
             category.set(suggestion)
         add(4, "Category", category)
-        fields["barcode"].focus_set()
+        # The cost is never typed: it comes from the invoice, per piece (D-012 amendment). It is shown so a
+        # wrong 'how many' answer, or a selling price below cost, stands out.
+        unit_cost = line.amount_excl_vat / line.quantity if line.quantity else 0.0  # one invoice unit, before VAT
+        cost_label = self.label(area, "", 13, color=GREY, pady=(4, 0))
+
+        def cost_per_piece():
+            pieces = parse_number(fields["pieces"].get())
+            return unit_cost / pieces if pieces and pieces >= 1 else None
+
+        def show_cost(*_):
+            cost, price = cost_per_piece(), parse_number(fields["price"].get())
+            text = f"Cost per piece: €{cost:.2f} (before VAT)" if cost is not None else ""
+            if cost is not None and price:
+                text += f"    ·    selling price before VAT: €{price / (1 + line.vat_rate / 100):.2f}"
+            cost_label.config(text=text)
+
+        for name in ("pieces", "price"):
+            fields[name].bind("<KeyRelease>", show_cost)
+        show_cost()
+        (fields["price"] if barcode else fields["barcode"]).focus_set()
         error = self.label(area, "", 12, color=RED_BG, pady=(4, 0))
 
         def save():
@@ -356,6 +402,10 @@ class App:
                 return error.config(text="Pieces in 1 unit must be a whole number (1 if it is a single item).")
             if price is None or price <= 0:
                 return error.config(text="Type the selling price. It is required.")
+            cost = cost_per_piece()
+            if cost is not None and price / (1 + line.vat_rate / 100) <= cost:
+                return error.config(text=f"The selling price is below the cost (€{cost:.2f} per piece). Check the "
+                                         "price, and how many you sell from 1 unit.")
             if not category.get():
                 return error.config(text="Choose a category.")
             self.answer({"new": {"description": name, "barcode": code, "pieces": int(pieces), "price": price,
@@ -364,7 +414,7 @@ class App:
         row = tk.Frame(area, bg="white")
         row.pack(anchor="w", pady=(6, 0))
         self.button(row, "Save new item", save, GREEN, size=12)
-        self.button(row, "Back", lambda: self.show_question(*self.current), size=12)
+        self.button(row, "Cancel", lambda: self.show_question(*self.current), size=12)
 
     def ask_fix_line(self, area, entry, ev, q):
         self.label(area, "Look at the picture and the paper. Correct any number that is wrong:", 14, pady=(0, 6))
@@ -465,7 +515,10 @@ class App:
         with LOG.open("a", encoding="utf-8") as f:
             f.write(f"\n--- {datetime.now().isoformat(timespec='seconds')}\n")
             f.write("".join(traceback.format_exception(error)))
-        messagebox.showerror("Something went wrong", "Something went wrong. Please contact Zein.")
+        if isinstance(error, PermissionError):  # a file open in Excel: staff can fix that themselves
+            messagebox.showerror("Close Excel", f"{error}\n\nNothing was saved for this invoice.")
+        else:
+            messagebox.showerror("Something went wrong", "Something went wrong. Please contact Zein.")
         self.root.destroy()
 
 

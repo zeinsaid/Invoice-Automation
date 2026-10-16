@@ -153,6 +153,7 @@ class Evaluation:
     lines: list[tuple[InvoiceLine, Match]] = field(default_factory=list)
     note: str = ""
     labels: dict[str, str] = field(default_factory=dict)  # the supplier's printed column names (fix_line)
+    answer_keys: dict[str, str] = field(default_factory=dict)  # line key -> key its item/pack answers live under
 
 
 @dataclass
@@ -212,11 +213,12 @@ def evaluate(entry: Entry, ctx: Context) -> Evaluation:
             "Only make the Excel again if it was lost and never uploaded."))
         return ev
 
+    ev.answer_keys = _answer_keys(inv.lines)
     for line in inv.lines:
         q = _line(line, inv, ev, ctx)
         if ev.outcome == "zein":
             return ev  # one line staff can't answer: the whole invoice goes to Zein
-        if q:
+        if q and q.id not in {x.id for x in ev.questions}:
             ev.questions.append(q)
 
     if not ev.questions:
@@ -224,6 +226,18 @@ def evaluate(entry: Entry, ctx: Context) -> Evaluation:
     if ev.outcome == "questions" and not ev.questions:
         ev.outcome = "ready"
     return ev
+
+
+def _answer_keys(lines: list[InvoiceLine]) -> dict[str, str]:
+    """Lines with the same barcode (or, without one, the same supplier code) are the same product in
+    the same unit: Athenites prints a second line when an item is scanned again. They share one answer,
+    so staff are asked once and a new product gets one code, not two."""
+    first: dict[str, str] = {}
+    keys = {}
+    for line in lines:
+        product = usable_barcode(line) or (f"code:{line.supplier_code}" if line.supplier_code else "")
+        keys[line.key] = first.setdefault(product, line.key) if product else line.key
+    return keys
 
 
 def _zein(ev: Evaluation, note: str) -> Evaluation:
@@ -236,13 +250,13 @@ def _zein(ev: Evaluation, note: str) -> Evaluation:
 def _line(line: InvoiceLine, inv: Invoice, ev: Evaluation, ctx: Context) -> Question | None:
     """Work out one line, applying answers. Returns the next question about it, if any."""
     a = ev.entry.answers
-    row = line.key
+    row = ev.answer_keys.get(line.key, line.key)  # item and pack answers; fix answers stay per line
     for flag in line.flags:
         if flag.kind == ZEIN:
             _zein(ev, f"Line {line.line_no}: {flag.message}")
             return None
     if any(f.kind == UNREADABLE for f in line.flags):
-        return Question(f"fix:{row}", "fix_line", "Type the numbers as printed on the paper",
+        return Question(f"fix:{line.key}", "fix_line", "Type the numbers as printed on the paper",
                         next(f.message for f in line.flags if f.kind == UNREADABLE), line, {"labels": ev.labels})
 
     item_answer = a.get(f"item:{row}")
@@ -265,7 +279,7 @@ def _line(line: InvoiceLine, inv: Invoice, ev: Evaluation, ctx: Context) -> Ques
                         "Scan or type the barcode of ONE piece, or search for it by name.", line,
                         {"candidates": m.candidates})
     item = ctx.catalogue.items[m.item_code]
-    if not item.storable and not isinstance(item_answer, dict):
+    if not item.storable:  # never output: PowerSoft keeps no stock for it (D-005)
         return Question(f"item:{row}", "not_storable", "Which single item is this?",
                         f"'{item.description}' is a pack that holds no stock. Scan or type the barcode of "
                         "ONE piece, or search for it.", line, {"candidates": m.candidates})
@@ -320,16 +334,27 @@ class Result:
 def finalize(ev: Evaluation, ctx: Context) -> Result:
     inv = ev.invoice
     a = ev.entry.answers
+    name = f"{inv.short_name} {inv.number}" + (f" {inv.date:%Y-%m-%d}" if inv.date else "")
+    output_file = READY_DIR / f"{name}.xlsx"
+    # All or nothing: if a file is open in Excel, stop before any code is issued or anything is written.
+    _check_writable([output_file, ctx.table.path, NEW_ITEMS, PROCESSED, PRICE_CHANGES])
     result_rows: dict[str, OutputRow] = {}
     amounts: dict[str, float] = {}
     confirmed = []
+    issued: dict[str, str] = {}  # answer key -> code, so lines sharing a new-item answer share the code
+    new_lines: dict[str, list[InvoiceLine]] = {}
     for line, m in ev.lines:
-        row_key = line.key
         if m.method == "new_item":
-            form = a[f"item:{row_key}"]["new"]
-            m.item_code = _issue_new_item(line, inv, form, m.pack_factor, ctx.catalogue).code
-            confirmed.append(f"New item {m.item_code} '{form['description']}' (from '{line.description}'), "
-                             f"retail {float(form['price']):.2f}, barcode {form['barcode']}")
+            new_lines.setdefault(ev.answer_keys.get(line.key, line.key), []).append(line)
+    for line, m in ev.lines:
+        row_key = ev.answer_keys.get(line.key, line.key)
+        if m.method == "new_item":
+            if row_key not in issued:
+                form = a[f"item:{row_key}"]["new"]
+                issued[row_key] = _issue_new_item(new_lines[row_key], inv, form, m.pack_factor, ctx.catalogue).code
+                confirmed.append(f"New item {issued[row_key]} '{form['description']}' (from '{line.description}'), "
+                                 f"retail {float(form['price']):.2f}, barcode {form['barcode']}")
+            m.item_code = issued[row_key]
         elif "staff" in m.method or "+pack" in m.method:
             confirmed.append(f"Line {line.line_no} '{line.description}' -> {m.item_code} "
                              f"'{ctx.catalogue.items[m.item_code].description}', {m.pack_factor:g} per unit")
@@ -347,8 +372,6 @@ def finalize(ev: Evaluation, ctx: Context) -> Result:
         _check_cost(row, inv, ctx.table, changes)
 
     _learn(ev, ctx)
-    name = f"{inv.short_name} {inv.number}" + (f" {inv.date:%Y-%m-%d}" if inv.date else "")
-    output_file = READY_DIR / f"{name}.xlsx"
     write_invoice_excel(output_file, rows, ctx.catalogue, inv.supplier)
     ctx.table.save()
     _record_processed(inv, output_file)
@@ -419,16 +442,19 @@ def _load_new_items() -> list[Item]:
                 for r in csv.DictReader(f)]
 
 
-def _issue_new_item(line: InvoiceLine, inv: Invoice, form: dict, pieces_per_unit: float, catalogue: Catalogue) -> Item:
-    """Give a staff-approved new item the next code (D-012) and add it to the local additions (D-018)."""
+def _issue_new_item(lines: list[InvoiceLine], inv: Invoice, form: dict, pieces_per_unit: float,
+                    catalogue: Catalogue) -> Item:
+    """Give a staff-approved new item the next code (D-012) and add it to the local additions (D-018).
+    `lines` are all the invoice lines of this product; the cost is averaged over them."""
     existing = []
     if NEW_ITEMS.exists():
         with NEW_ITEMS.open(encoding="utf-8", newline="") as f:
             existing = list(csv.DictReader(f))
     code = str(max([catalogue.highest_numeric_code()] + [int(r["code"]) for r in existing]) + 1)
-    pieces = line.quantity * pieces_per_unit
-    item = Item(code=code, description=form["description"], barcode=form["barcode"], vat=line.vat_rate,
-                cost=line.amount_excl_vat / pieces if pieces else 0.0, price=float(form["price"]),
+    pieces = sum(line.quantity for line in lines) * pieces_per_unit
+    amount = sum(line.amount_excl_vat for line in lines)
+    item = Item(code=code, description=form["description"], barcode=form["barcode"], vat=lines[0].vat_rate,
+                cost=amount / pieces if pieces else 0.0, price=float(form["price"]),
                 supplier=inv.supplier, brand="", category=form.get("category", ""), storable=True)
     catalogue.add_local(item)
     write_header = not NEW_ITEMS.exists()
@@ -452,7 +478,9 @@ def suggested_category(candidates, catalogue: Catalogue) -> str:
 
 
 def search_items(text: str, ctx: Context, supplier: str | None) -> list[tuple[str, str, float]]:
-    return similar_names(text, supplier, ctx.catalogue, ctx.table, limit=8)
+    """The search box in the review window. Items that hold no stock can't be chosen (D-005)."""
+    hits = similar_names(text, supplier, ctx.catalogue, ctx.table, limit=16)
+    return [h for h in hits if ctx.catalogue.items[h[0]].storable][:8]
 
 
 # --- Small state files -------------------------------------------------------------------------
@@ -485,6 +513,18 @@ def _record_price_changes(inv: Invoice, changes) -> None:
                      "item_code": code, "description": description, "old_cost": f"{old:.3f}",
                      "new_cost": f"{new:.3f}", "change_pct": f"{(new - old) / old * 100:+.1f}"})
     _write_csv(PRICE_CHANGES, fields, rows)
+
+
+def _check_writable(paths: list[Path]) -> None:
+    """Excel locks the files it has open. Opening each one for appending finds that out without
+    changing anything."""
+    for path in paths:
+        if path.exists():
+            try:
+                with path.open("a"):
+                    pass
+            except PermissionError:
+                raise PermissionError(f"{path.name} is open in Excel. Close it and run again.") from None
 
 
 def _file_hash(path: Path) -> str:

@@ -112,3 +112,39 @@ def test_barcode_match_with_old_cost_stays_one_piece(tmp_path):
     # Cost stored with VAT (0.60 instead of 0.50) is a price change, not a pack.
     m = match(line("FIZZ CAN 330ML", "1111111111116", 24, 0.42), tmp_path)
     assert (m.pack_factor, m.flags) == (1, [])
+
+
+def _learned(barcode, factor, last_cost, tmp_path):
+    from invoice_automation.supplier_items import TRUSTED, SupplierItem
+    row = SupplierItem(SUPPLIER, "barcode", barcode, "FIZZ CASE", "1", factor, TRUSTED, "staff",
+                       last_cost, "INV0", None, "2026-10-01")
+    return SupplierItems([row], tmp_path / "t.xlsx")
+
+
+def test_normal_size_preferred_within_tolerance(tmp_path):
+    # 12.75 / 0.50 = 25.5x: suggest the normal 24, not an unusual 26.
+    m = match(line("FIZZ CAN 330ML", "9999999999994", 1, 12.75), tmp_path)
+    assert m.pack_factor == 24 and [f.level for f in m.flags] == [YELLOW]
+
+
+def test_promotion_on_last_invoice_does_not_spoil_the_suggestion(tmp_path):
+    # The last invoice was a promotion (0.40 a can); PowerSoft still says 0.50. A case at 12.00 is 24.
+    table = SupplierItems([], tmp_path / "t.xlsx")
+    from invoice_automation.supplier_items import TRUSTED, SupplierItem
+    table.upsert(SupplierItem(SUPPLIER, "name", "X", "X", "1", None, TRUSTED, "legacy", 0.40, "INV0", None, "2026-10-01"))
+    m = match_line(line("FIZZ CAN 330ML", "9999999999994", 1, 12.00), SUPPLIER, "INV1", catalogue(), table)
+    assert m.pack_factor == 24
+
+
+def test_learned_pack_size_is_kept_while_the_price_fits(tmp_path):
+    table = _learned("9999999999994", 24, 0.50, tmp_path)
+    m = match_line(line("FIZZ CASE", "9999999999994", 1, 12.50), SUPPLIER, "INV1", catalogue(), table)
+    assert (m.method, m.pack_factor, m.flags) == ("learned", 24, [])
+
+
+def test_learned_pack_size_is_asked_again_when_the_price_halves(tmp_path):
+    # The supplier now sells the case of 12: same barcode, half the price.
+    table = _learned("9999999999994", 24, 0.50, tmp_path)
+    m = match_line(line("FIZZ CASE", "9999999999994", 1, 6.00), SUPPLIER, "INV1", catalogue(), table)
+    assert m.pack_factor == 12
+    assert "Last time 1 unit was 24 pieces" in m.flags[0].message

@@ -57,6 +57,12 @@ class Session:
             entry.status = PENDING  # Zein answered: back to the normal flow
         save_queue(self.entries)
 
+    def undo(self, entry: Entry) -> None:
+        """Take back the last answer on this invoice (a mis-click). Its question comes back."""
+        if entry.answers:
+            entry.answers.pop(next(reversed(entry.answers)))
+            save_queue(self.entries)
+
     def not_sure(self, entry: Entry, question: Question) -> None:
         note = f"Staff were not sure: {question.title}" + (f" ({question.detail})" if question.detail else "")
         self._event(entry, ZEIN_LIST, note)

@@ -6,6 +6,7 @@ def test_parse_number_formats():
     assert parse_number("-11.80") == -11.80
     assert parse_number("2,51249") == 2.51249  # comma decimal (Jumbo)
     assert parse_number("1,234.50") == 1234.50  # thousands separator
+    assert parse_number("1.234,50") == 1234.50  # the same, with a decimal comma (Jumbo, Vassos)
     assert parse_number("5 774") == 5.774  # dot read as a space (Cosmos)
     assert parse_number("19 %") == 19
     assert parse_number("") is None

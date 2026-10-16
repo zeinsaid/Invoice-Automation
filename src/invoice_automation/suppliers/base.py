@@ -46,6 +46,11 @@ def parse(profile, result: dict, source, page_index: int, corrections: dict | No
             # Staff typed these numbers from the paper. If they still don't add up, the supplier
             # printed it that way; don't ask again.
             line.flags = [f for f in line.flags if f.kind != UNREADABLE]
+        if line.quantity < 0:
+            # Invoices never print a negative quantity (returns come on their own slip, with positive
+            # numbers, and are not uploaded), so it is a misread. If staff confirm it, Zein looks.
+            line.flags.append(Flag(RED, "quantity", "The quantity on the paper is negative. Zein needs to look at it.",
+                                   ZEIN) if fixed else negative_flag())
         line.line_no = str(len(lines) + 1)  # by position: printed line numbers get pen-damaged
         line.page = page_index
         line.row_index = row_index
@@ -133,6 +138,10 @@ def arithmetic_flag(description: str, computed: float, printed: float) -> Flag |
         return None
     return Flag(YELLOW, "quantity", f"{description} gives {computed:.2f}, but the line says {printed:.2f}. "
                                     "Something was misread.", UNREADABLE)
+
+
+def negative_flag() -> Flag:
+    return Flag(RED, "quantity", "The quantity was read as negative, which can't be right.", UNREADABLE)
 
 
 def unreadable_flag(what: str) -> Flag:
