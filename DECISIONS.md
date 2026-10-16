@@ -325,6 +325,12 @@ No separate new-items file is needed.
 
 **Reasoning.** It mirrors exactly what Zein does by hand. Leaving the retail price to a human keeps pricing decisions out of the tool.
 
+
+**Amendment (2026-10-16): codes stay sequential; the new-item form never asks for a cost.**
+- *Codes.* The full review found a risk: if staff create an item by hand in PowerSoft between exports, the tool can issue the same code for a different product. "Upload Items" then skips the tool's row, and the quantity upload adds the stock to the hand-made item. A separate range for the tool (5000+, or a letter prefix) was considered and **rejected by Zein**: it would let the same product be created twice under two codes, and PowerSoft drops the barcode of the second one, which is worse than a visible clash. Instead, once the tool is live, **staff never create items by hand**; new items only come through the tool, and anything odd goes to Zein. The PowerSoft API, if it is affordable, would remove the risk entirely (the tool could read live codes and create items itself). Zein is asking PowerSoft about it.
+- *Cost.* Staff never type a cost. It is the invoice amount per piece (line amount / quantity / "how many do you sell from 1 unit"), averaged over every line of that product. *Why:* hand-typed costs are how VAT-inclusive costs got into PowerSoft (1634-1637). The form shows the cost per piece as staff type, and refuses a selling price at or below it, which also catches a wrong "how many" answer (a 3-pack priced as one bar).
+- *Barcode.* Pre-filled from the invoice line and editable. Every item must have a barcode: if a single piece has none, the pack's barcode is used and Zein can remove it in PowerSoft later.
+
 ---
 
 ## D-013: Out of scope: handwritten invoices (ED Sport, Aristidou), automatic upload; every input PDF is treated as an invoice
@@ -570,6 +576,12 @@ The 11 VAT corrections were made by hand and verified in the second 2026-10-14 e
 
 **Reasoning.** It turns the riskiest error (one case entered as one can) into a fact learned once per barcode, with an independent check from price. Using the line amount handles discounts and rounding in one go.
 
+
+**Amendment (2026-10-16): pack suggestions check both known costs, and learned sizes are re-checked.** From the rehearsal and the full review:
+- *Two references.* The price is compared with this supplier's last cost **and** PowerSoft's cost. A promotion on the last invoice (Monster Zero at 0.67 instead of 0.83 suggested "30") or an out-of-date PowerSoft cost only spoils one of them.
+- *Which size is suggested.* Within 10% of 1 piece: 1, no question. Within **1%** of a whole number: that number (13.0x is 13). Otherwise a normal size (3, 4, 6, 9, 12, 24) within 10% (25.5x suggests 24, not 26). Otherwise the nearest whole number in red, or no suggestion. The 1% band allows for PowerSoft keeping costs to 2 decimals (about 0.6% rounding). Every suggestion is still a question: staff count the box.
+- *Learned sizes are checked by price too* (Zein: "anything that can be checked should be checked"). If the price no longer fits the learned size against either known cost (outside 1.5x either way: the supplier changed the box from 24 to 12, or the first answer was wrong), the question comes back with "Last time 1 unit was 24 pieces, but the price has changed a lot", and the new answer replaces the old one.
+
 ---
 
 ## D-021: Use `prebuilt-layout` only; the supplier profile interprets the table
@@ -647,3 +659,12 @@ The 11 VAT corrections were made by hand and verified in the second 2026-10-14 e
 - *Skip duplicates silently.* It leaves no way to regenerate an Excel that was deleted before upload.
 
 **Reasoning.** Making the safe path the only path is stronger than detecting mistakes afterwards. Each question is something a person holding the invoice (and the product) can answer for certain. Every answer is learned, so questions get fewer each week, and Zein only hears about genuine tool failures.
+
+**Amendment (2026-10-16): changes after the full review.**
+- *One answer per product per invoice.* Lines with the same barcode (or, without one, the same supplier code) share their item and pack answers. Before, a product scanned twice at the Athenites till was asked twice, and a new product on two lines got two item codes.
+- *"< Previous question"* takes back the last answer on the current invoice (a mis-click would otherwise be learned). The new-item form's own button is "Cancel".
+- *"Is it this item?"* shows the words that differ in red ("A2" / "A3", "Black" / "Blue", "120GR" / "130GR"). Near-misses are still asked, not rejected, because a product can change size and stay the same item.
+- *Items that hold no stock* (Storable = No in PowerSoft) can never be chosen or written to an Excel: the search hides them, a scanned barcode of one is refused, and a match to one always asks for the single item (D-005).
+- *Negative quantities* are a misread: invoices never print one, and returns come on their own slip with positive numbers and are entered by hand, not through the tool. Staff are asked to type the numbers from the paper; if they confirm a negative, the invoice goes to Zein.
+- *A file open in Excel* (the output, or `supplier_items.xlsx`) stops the invoice before anything is written, with "Close it and run again" instead of "contact Zein". Before, new codes could be issued and the Excel written with the learned table left unsaved.
+
