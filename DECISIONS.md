@@ -633,7 +633,7 @@ The 11 VAT corrections were made by hand and verified in the second 2026-10-14 e
   - price changes (report only)
   - unsupported or handwritten suppliers ("enter this one by hand")
 - An invoice's **Excel is written only when every question is answered**, to `output/Ready to upload/`, the only folder staff upload from. Unanswered questions persist and come back on the next run, so nothing depends on staff remembering a step.
-- Every screen has **"I'm not sure"**. That, and problems staff can't answer from the paper (unknown VAT code, an unexpected column filled in), put the invoice on **Zein's list**. He resolves it over AnyDesk in the same window, which has extra options for him.
+- Every screen has **"I'm not sure"**. That, and problems staff can't answer from the paper (unknown VAT code, an unexpected column filled in), put the invoice on **Zein's list**. He resolves it over AnyDesk in the same window, which has extra options for him. *Confirmed after the first rehearsal (2026-10-16):* the rest of that invoice's questions are not asked. Zein's fix usually changes the inputs (a fresh PowerSoft export, a corrected item), so redoing the invoice from the start is safer than continuing with answers given before the fix.
 - Every answer is learned like a confirmation (D-018). The report lists what staff confirmed, and learned answers stay subject to the arithmetic and cost checks.
 - Built as a desktop window (tkinter + Pillow); no browser or server.
 
