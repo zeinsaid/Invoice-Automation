@@ -23,6 +23,9 @@ from .supplier_items import TRUSTED, SupplierItems
 FUZZY_THRESHOLD = 90  # strict, for Athenites (D-015); 0-100 similarity
 COMMON_PACK_SIZES = (3, 4, 6, 9, 12, 24)  # D-020; grows as Zein confirms others
 PACK_TOLERANCE = 0.10  # the price ratio must be within 10% of a whole pack size
+# A barcode match priced at this many times the known cost or more is a pack, not one piece.
+# Below it, the difference is a price change (or an old VAT-inclusive cost) and goes to the report.
+MULTIPACK_RATIO = 1.5
 
 
 @dataclass
@@ -56,15 +59,17 @@ def match_line(line: InvoiceLine, supplier: str, invoice_no: str, catalogue: Cat
             suggest_pack(m, line, supplier, invoice_no, catalogue, table)
         return m
 
-    # 2. Barcode is the piece barcode in PowerSoft. The item is certain; the pack size is 1, unless
-    #    the invoice prints one (Andrikian: the lighter's barcode, but a box of 25), which the price checks.
+    # 2. Barcode is in PowerSoft. The item is certain; the pack size is 1, unless the invoice prints one
+    #    (Andrikian: the lighter's barcode, but a box of 25) or the price is a multiple of the known cost
+    #    (PowerSoft item 310 holds the bag-of-10 barcode but is one lollipop). Either way the price checks it.
     codes = [c for c in catalogue.by_barcode.get(barcode, []) if c not in exclude] if barcode else []
     if codes:
         storable = [c for c in codes if catalogue.items[c].storable] or codes
         m = Match(storable[0], 1, "barcode", candidates=[(c, catalogue.items[c].description, 100) for c in storable])
         if len(storable) > 1:
             m.flags.append(Flag(YELLOW, "item", f"Barcode {barcode} is on several items ({', '.join(storable)}).", MATCH))
-        if line.printed_factor:
+        ratio = _price_ratio(m.item_code, line, supplier, invoice_no, catalogue, table)
+        if line.printed_factor or (ratio is not None and ratio >= MULTIPACK_RATIO):
             m.pack_factor = None
             suggest_pack(m, line, supplier, invoice_no, catalogue, table)
         return m
@@ -134,15 +139,26 @@ def _similarity(a: str, b: str, **_) -> float:
     return max(fuzz.ratio(a, b), fuzz.token_sort_ratio(a, b))
 
 
+def _reference_and_price(code, line, supplier, invoice_no, catalogue, table) -> tuple[float | None, float | None]:
+    """Known cost of one piece, and the invoice price of one unit (both before VAT)."""
+    reference = table.last_cost(supplier, code, invoice_no) or catalogue.items[code].cost
+    unit_price = line.list_price_excl_vat
+    if unit_price is None and line.quantity:
+        unit_price = line.amount_excl_vat / line.quantity
+    return reference, unit_price
+
+
+def _price_ratio(code, line, supplier, invoice_no, catalogue, table) -> float | None:
+    reference, unit_price = _reference_and_price(code, line, supplier, invoice_no, catalogue, table)
+    return unit_price / reference if reference and unit_price else None
+
+
 def suggest_pack(m: Match, line: InvoiceLine, supplier, invoice_no, catalogue, table) -> None:
     """Pack factor = invoice unit price / known cost of one piece (D-020)."""
     if line.pieces_known:  # the invoice printed the pack size; quantity is already in pieces
         m.pack_factor = 1
         return
-    reference = table.last_cost(supplier, m.item_code, invoice_no) or catalogue.items[m.item_code].cost
-    unit_price = line.list_price_excl_vat
-    if unit_price is None and line.quantity:
-        unit_price = line.amount_excl_vat / line.quantity
+    reference, unit_price = _reference_and_price(m.item_code, line, supplier, invoice_no, catalogue, table)
     if not unit_price and line.quantity:  # free goods: no price to compare, so staff confirm the size
         m.flags.append(Flag(YELLOW, "quantity", "Free goods (no price), so the pack size can't be checked.", PACK,
                             {"suggested": line.printed_factor or 1}))

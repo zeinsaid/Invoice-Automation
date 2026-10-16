@@ -566,6 +566,8 @@ The 11 VAT corrections were made by hand and verified in the second 2026-10-14 e
 - *Add the case barcodes to PowerSoft as extra barcodes on the single item.* Rejected by Zein: a cashier scanning a case would sell it for the price of one piece.
 - *Rely on Zein's memory of pack sizes.* That's how it's done today. The price-ratio check is the same method Zein uses to double-check without going to the storeroom, now done automatically.
 
+**Amendment (2026-10-16): exact barcode matches are price-checked too.** The first rehearsal turned up PowerSoft item 310 (Chupa Chups, sold and costed as one lollipop at 0.17) holding the barcode of the bag of 10. An exact barcode match was taken as 1 piece without a check, so 6 bags became 6 lollipops at 1.67 each. Now, if a barcode-matched line costs **1.5× or more** the item's known cost, the pack-size question is asked as for any other line. Below 1.5× it stays 1 piece and the difference goes to the price-change report (D-009), so out-of-date or VAT-inclusive costs don't add questions. *Why 1.5×:* the smallest real pack is 2, and a genuine price change is very unlikely to be +50%.
+
 **Reasoning.** It turns the riskiest error (one case entered as one can) into a fact learned once per barcode, with an independent check from price. Using the line amount handles discounts and rounding in one go.
 
 ---

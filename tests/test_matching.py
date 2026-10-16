@@ -99,3 +99,16 @@ def test_printed_pack_size_disagreeing_with_price_is_asked(tmp_path):
     l.printed_factor = 24
     m = match(l, tmp_path)
     assert m.pack_factor == 24 and [(f.level, f.data["suggested"]) for f in m.flags] == [("yellow", 24)]
+
+
+def test_piece_item_holding_the_pack_barcode_is_asked(tmp_path):
+    # PowerSoft's single item carries the bag's barcode (Chupa Chups 310): priced at 10 pieces.
+    m = match(line("FIZZ CAN 330ML X10", "1111111111116", 6, 5.00), tmp_path)
+    assert (m.item_code, m.pack_factor, m.method) == ("1", 10, "barcode")
+    assert [f.level for f in m.flags] == [RED]  # 10 isn't a common size yet
+
+
+def test_barcode_match_with_old_cost_stays_one_piece(tmp_path):
+    # Cost stored with VAT (0.60 instead of 0.50) is a price change, not a pack.
+    m = match(line("FIZZ CAN 330ML", "1111111111116", 24, 0.42), tmp_path)
+    assert (m.pack_factor, m.flags) == (1, [])
