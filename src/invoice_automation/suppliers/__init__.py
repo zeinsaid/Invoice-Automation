@@ -7,9 +7,11 @@ A profile provides:
 Table-style invoices share their parsing in base.py.
 """
 
-from . import agrotis, andrikian, athenites, base, cassandra, cosmos, fereos, jumbo, pambos, partyice, rainbow, vassos
+from . import (agrotis, andrikian, athenites, base, cassandra, cosmos, example, fereos, jumbo, pambos, partyice, rainbow,
+               vassos)
 
-PROFILES = [athenites, cassandra, cosmos, fereos, andrikian, vassos, agrotis, rainbow, pambos, partyice, jumbo]
+PROFILES = [athenites, cassandra, cosmos, fereos, andrikian, vassos, agrotis, rainbow, pambos, partyice, jumbo,
+            example]  # example: the made-up demo supplier
 
 # Suppliers the tool recognises but deliberately skips (D-013), with the message for the report.
 SKIPPED = {

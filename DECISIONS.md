@@ -130,7 +130,7 @@ My current expectation: start with `prebuilt-invoice` for supplier and totals, u
 **Status:** Accepted · 2026-10-14 (Zein supplies the rules per supplier as samples come in)
 
 **Context.** PowerSoft quantity and cost are always per *selling piece*: whatever is scanned at the till (one cigarette pack, one Kinder Happy Hippo 10-pack, one 500 ml water). Invoices use different units:
-- Cassandra: `FACT 10 × QTY 6` = 60 packs; price is per carton (39.37 → 3.937/pack).
+- Cassandra: `FACT 10 × QTY 6` = 60 packs; price is per carton (e.g. 40.00 → 4.000/pack).
 - Vassos: cases plus a loose "fraction"; the NET PRICE column is already per piece.
 - Andrikian: `QTY × U.O.M.` (1 × 6 = 6); price is per pack, after a 10% discount, ÷ U.O.M.
 - Fereos, Pambos: already per piece.
@@ -265,7 +265,7 @@ Only steps 1–2 are trusted automatically. Results from steps 3–4 are written
   - the change is written to a price-change report (item, old → new, % change, invoice)
   - the master is updated
 - **Which column PowerSoft reads (confirmed).** The quantity upload reads only field 1 (B, Item Code), field 5 (F, Quantity), field 7 (**H, Unit Price excl. VAT**) and field 9 (J, Line Discount %, always 0). K ("Last Unit Price") is not read, so the tool writes the cost to H only. It is not yet known whether this upload also updates the item's stored cost in PowerSoft. A one-item test is needed; if it doesn't, cost updates need an "Upload Items" pass with "modify" ticked.
-- **Costs are per supplier.** The same item can cost different amounts from different suppliers (e.g. Orbit bottle 30: 2.52 from Athenites vs 3.09 from Andrikian). So a "price change" means a change versus *that supplier's* last price, not versus PowerSoft's single cost (see D-018).
+- **Costs are per supplier.** The same item can cost different amounts from different suppliers (e.g. the same chewing gum at 2.50 from one supplier and 3.10 from another). So a "price change" means a change versus *that supplier's* last price, not versus PowerSoft's single cost (see D-018).
 
 **Reasoning.** Up-to-date costs are a free by-product once the invoice is read anyway. The report turns silent supplier price rises into something visible.
 
@@ -468,7 +468,7 @@ output/
 - **14 master codes don't exist in PowerSoft at all.**
 - **6 master codes point to a different product in PowerSoft.** For example, Agrotis master 1024 is "SELECT SQUARED EXERCISE BOOK A4", but PowerSoft 1024 is "SMOKING BROWN REGULAR PAPER X 50". Uploading the Agrotis Excel would have added stock to the wrong item.
 - **190 barcodes and 167 descriptions differ.** PowerSoft is right for barcodes (edited there when packaging changes). Most description differences are the master using the **supplier's own invoice wording** (e.g. Athenites `7DAYS SGL CROIS/COCOA VAN/70GR`), which is valuable matching data.
-- **Costs differ per supplier for the same item** (Orbit: Athenites 2.52, Andrikian 3.09). PowerSoft stores only one cost.
+- **Costs differ per supplier for the same item** (e.g. 2.50 from one supplier, 3.10 from another). PowerSoft stores only one cost.
 
 Zein's rule: **PowerSoft is the truth** (except perhaps cost). Staff, not Zein, now maintain the Excels, so the copies will keep drifting.
 
@@ -572,7 +572,7 @@ The 11 VAT corrections were made by hand and verified in the second 2026-10-14 e
 - **The printed barcode is whatever the Athenites cashier scanned.** If their system has the pack barcode, they scan the pack. If not, they scan one piece and multiply. So the same product can arrive either way: Monster Zero came as 24 single cans, while two other Monster products came as cases on the same invoice.
 - **Prices and line amounts include VAT.** VAT is a letter code: B = 5%, D = 19% (checked against the catalogue on every matched line).
 - **There is a discount column per line.**
-- **The printed unit price is rounded.** For Mr Brown, 8 × 4.80 = 38.40, but the line says 38.39.
+- **The printed unit price is rounded.** For one line, 8 × 4.85 = 38.80, but the line says 38.79.
 - **The till doesn't merge repeat scans.** If a cashier scans an item, then something else, then the first item again, it prints two lines.
 - Most item names in PowerSoft were originally copied from Athenites invoices, so names usually match word for word.
 - Several newer items have Athenites' VAT-inclusive price stored as their cost, because staff didn't realise the invoice includes VAT.
@@ -600,13 +600,13 @@ The 11 VAT corrections were made by hand and verified in the second 2026-10-14 e
 - *Add the case barcodes to PowerSoft as extra barcodes on the single item.* Rejected by Zein: a cashier scanning a case would sell it for the price of one piece.
 - *Rely on Zein's memory of pack sizes.* That's how it's done today. The price-ratio check is the same method Zein uses to double-check without going to the storeroom, now done automatically.
 
-**Amendment (2026-10-16): exact barcode matches are price-checked too.** The first rehearsal turned up PowerSoft item 310 (Chupa Chups, sold and costed as one lollipop at 0.17) holding the barcode of the bag of 10. An exact barcode match was taken as 1 piece without a check, so 6 bags became 6 lollipops at 1.67 each. Now, if a barcode-matched line costs **1.5× or more** the item's known cost, the pack-size question is asked as for any other line. Below 1.5× it stays 1 piece and the difference goes to the price-change report (D-009), so out-of-date or VAT-inclusive costs don't add questions. *Why 1.5×:* the smallest real pack is 2, and a genuine price change is very unlikely to be +50%.
+**Amendment (2026-10-16): exact barcode matches are price-checked too.** The first rehearsal turned up PowerSoft item 310 (Chupa Chups, sold and costed as one lollipop at 0.20) holding the barcode of the bag of 10. An exact barcode match was taken as 1 piece without a check, so 6 bags became 6 lollipops at 2.00 each. Now, if a barcode-matched line costs **1.5× or more** the item's known cost, the pack-size question is asked as for any other line. Below 1.5× it stays 1 piece and the difference goes to the price-change report (D-009), so out-of-date or VAT-inclusive costs don't add questions. *Why 1.5×:* the smallest real pack is 2, and a genuine price change is very unlikely to be +50%.
 
 **Reasoning.** It turns the riskiest error (one case entered as one can) into a fact learned once per barcode, with an independent check from price. Using the line amount handles discounts and rounding in one go.
 
 
 **Amendment (2026-10-16): pack suggestions check both known costs, and learned sizes are re-checked.** From the rehearsal and the full review:
-- *Two references.* The price is compared with this supplier's last cost **and** PowerSoft's cost. A promotion on the last invoice (Monster Zero at 0.67 instead of 0.83 suggested "30") or an out-of-date PowerSoft cost only spoils one of them.
+- *Two references.* The price is compared with this supplier's last cost **and** PowerSoft's cost. A promotion on the last invoice (a can on offer at 0.70 instead of 0.85 made a case of 24 look like 29) or an out-of-date PowerSoft cost only spoils one of them.
 - *Which size is suggested.* Within 10% of 1 piece: 1, no question. Within **1%** of a whole number: that number (13.0x is 13). Otherwise a normal size (3, 4, 6, 9, 12, 24) within 10% (25.5x suggests 24, not 26). Otherwise the nearest whole number in red, or no suggestion. The 1% band allows for PowerSoft keeping costs to 2 decimals (about 0.6% rounding). Every suggestion is still a question: staff count the box.
 - *Learned sizes are checked by price too* (Zein: "anything that can be checked should be checked"). If the price no longer fits the learned size against either known cost (outside 1.5x either way: the supplier changed the box from 24 to 12, or the first answer was wrong), the question comes back with "Last time 1 unit was 24 pieces, but the price has changed a lot", and the new answer replaces the old one.
 

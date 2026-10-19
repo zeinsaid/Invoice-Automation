@@ -23,3 +23,7 @@ wheels/
 # Windows / Excel noise
 Thumbs.db
 ~$*.xlsx
+
+# Private working notes (job hunt, Azure billing): kept locally only
+CLAUDE.md
+TODO.md

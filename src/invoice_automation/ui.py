@@ -388,7 +388,9 @@ class App:
         add(4, "Category", category)
         # More than 1 piece per unit usually means a pack of something we already sell (e.g. a 3-pack of
         # Kinder Bueno White when 1372 is already the single bar): offer those before a duplicate is made.
-        stocked = tk.Frame(area, bg="white")  # packed under the Save button, so Save never drops off the screen
+        # Beside the form, in space that is empty anyway, so it fits on a small screen too.
+        stocked = tk.Frame(form, bg="white")
+        stocked.grid(row=0, column=2, rowspan=5, sticky="nw", padx=(36, 0))
         shown_for = None
 
         def show_stocked(*_):
@@ -405,8 +407,8 @@ class App:
             hits = [h for h in hits if h[2] >= hits[0][2] - 8][:3] if hits else []  # only near the best match
             if not hits:
                 return
-            self.label(stocked, "Do we already sell ONE piece of it? Then use that item, don't make a new one:", 13,
-                       True, pady=(8, 2))
+            self.label(stocked, "Do we already sell ONE piece of it?\nThen use that item, don't make a new one:", 13,
+                       True, wrap=420, pady=(4, 6))
             for c, d, _ in hits:
                 row = tk.Frame(stocked, bg="white")
                 row.pack(anchor="w")
@@ -468,7 +470,6 @@ class App:
         row.pack(anchor="w", pady=(6, 0))
         self.button(row, "Save new item", save, GREEN, size=12)
         self.button(row, "Cancel", lambda: self.show_question(*self.current), size=12)
-        stocked.pack(anchor="w", fill="x")
 
     def ask_fix_line(self, area, entry, ev, q):
         self.label(area, "Look at the picture and the paper. Correct any number that is wrong:", 14, pady=(0, 6))
