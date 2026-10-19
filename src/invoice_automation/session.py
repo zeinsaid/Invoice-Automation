@@ -133,7 +133,7 @@ class Session:
             timing = f", {len(e.entry.answers)} questions in {e.seconds / 60:.1f} min" if e.seconds else ""
             out.append(f"READY  {r.output_file.name}  ({len(r.invoice.lines)} lines -> {len(r.rows)} items, "
                        f"total {r.invoice.computed_total:.2f}{timing})")
-            out += [f"   staff: {c}" for c in r.confirmed]
+            out += [f"   {c}" if c.startswith("pack: ") else f"   staff: {c}" for c in r.confirmed]
             out += [f"   price: {code} {name}: {old:.2f} -> {new:.3f} ({(new - old) / old * 100:+.0f}%)"
                     for code, name, old, new in r.price_changes]
         for status, label in ((ZEIN_LIST, "ZEIN"), (RESCAN, "RESCAN"), (MANUAL, "BY HAND"), (SKIPPED, "SKIPPED")):

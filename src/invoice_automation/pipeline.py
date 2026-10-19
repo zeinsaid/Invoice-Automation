@@ -360,8 +360,11 @@ def finalize(ev: Evaluation, ctx: Context) -> Result:
                                  f"retail {float(form['price']):.2f}, barcode {form['barcode']}")
             m.item_code = issued[row_key]
         elif "staff" in m.method or "+pack" in m.method:
-            confirmed.append(f"Line {line.line_no} '{line.description}' -> {m.item_code} "
-                             f"'{ctx.catalogue.items[m.item_code].description}', {m.pack_factor:g} per unit")
+            # A linked pack (D-005 amendment) went in without a question, unless staff answered its size.
+            asked = "staff" in m.method or "+pack" in m.method.replace("+pack_link", "")
+            confirmed.append(("" if asked else "pack: ") + f"Line {line.line_no} '{line.description}' -> {m.item_code} "
+                             f"'{ctx.catalogue.items[m.item_code].description}', {m.pack_factor:g} per unit"
+                             + ("" if asked else " (linked pack in PowerSoft, not asked)"))
         item = ctx.catalogue.items[m.item_code]
         pieces = line.quantity * (m.pack_factor or 1)
         row = result_rows.setdefault(item.code, OutputRow(item, 0.0, 0.0))
