@@ -6,7 +6,8 @@ Order, cheapest and most certain first:
 3. name:     the supplier's wording matches exactly (their old wording from the legacy lists, or
              our item name; Athenites cuts names at 30 characters, so a cut-off name also counts)
 4. fuzzy:    the most similar name, above a strict threshold; always asked in the review window
-Anything else is a new item (D-012).
+Anything else is a new item (D-012). A match to a pack sub-item that holds no stock becomes its single
+piece, N per pack, when the catalogue links them by name (D-005 amendment).
 
 There is no LLM step: lines nothing matches are asked of staff (D-006 amendment).
 """
@@ -46,6 +47,36 @@ def usable_barcode(line: InvoiceLine) -> str:
 def match_line(line: InvoiceLine, supplier: str, invoice_no: str, catalogue: Catalogue,
                table: SupplierItems, exclude: set[str] = frozenset()) -> Match:
     """Match one line. Item codes in `exclude` are ignored (codes created for this same invoice)."""
+    m = _match(line, supplier, invoice_no, catalogue, table, exclude)
+    if m.item_code in catalogue.pack_links:
+        _unpack(m, line, supplier, invoice_no, catalogue, table)
+    return m
+
+
+def _unpack(m: Match, line: InvoiceLine, supplier, invoice_no, catalogue, table) -> None:
+    """The line matched a pack that holds no stock: count it as its single piece (D-005 amendment).
+    PowerSoft's "xN" is the pack size, checked by price like any other; if the price disagrees, staff
+    are asked with N suggested. With no known cost to compare, N is used (Zein set it up)."""
+    link = catalogue.pack_links[m.item_code]
+    pack = catalogue.items[m.item_code].description
+    m.item_code, m.method = link.single, m.method + "+pack_link"
+    m.candidates = [(link.single, catalogue.items[link.single].description, 100)] + m.candidates[1:]
+    m.flags = [f for f in m.flags if f.kind != PACK]
+    if line.pieces_known:  # the invoice already counts pieces
+        m.pack_factor = 1
+        return
+    ratios = _ratios(link.single, line, supplier, invoice_no, catalogue, table)
+    if not ratios or any(_near(r, link.pieces) for r in ratios):
+        m.pack_factor = link.pieces
+        return
+    m.pack_factor = None
+    m.flags.append(Flag(YELLOW, "quantity", f"PowerSoft says '{pack}' is {link.pieces} pieces, but the price looks "
+                                            f"like {ratios[0]:.1f}. Count on the box.", PACK,
+                        {"suggested": link.pieces}))
+
+
+def _match(line: InvoiceLine, supplier: str, invoice_no: str, catalogue: Catalogue,
+           table: SupplierItems, exclude: set[str]) -> Match:
     barcode = usable_barcode(line)
 
     # 1. Learned from an earlier invoice, by barcode or by the supplier's own item code.

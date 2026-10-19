@@ -148,3 +148,41 @@ def test_learned_pack_size_is_asked_again_when_the_price_halves(tmp_path):
     m = match_line(line("FIZZ CASE", "9999999999994", 1, 6.00), SUPPLIER, "INV1", catalogue(), table)
     assert m.pack_factor == 12
     assert "Last time 1 unit was 24 pieces" in m.flags[0].message
+
+
+# --- Pack sub-items linked to their single piece by name (D-005 amendment) -------------------------
+
+def pack(code, name, barcode="", cost=0.0):
+    return Item(code, name, barcode, 19, cost, None, SUPPLIER, "", "", False)  # holds no stock
+
+
+def test_pack_links_by_same_name_typo_and_size():
+    cat = catalogue(
+        Item("3", "FIZZ ZERO CAN 330ML", "3333333333333", 19, 0.50, 1.20, SUPPLIER, "", "", True),
+        Item("4", "WATER 500ML", "4444444444444", 5, 0.20, 0.50, SUPPLIER, "", "", True),
+        pack("10", "FIZZ CAN 330ML x6"),  # same name as 1, although 3 is just as similar
+        pack("11", "FIZZ CAN x6"),  # 1 and 3 equally similar: not linked
+        pack("12", "CRIPSS SALTED 40G X12"),  # typo
+        pack("13", "WATER 1.5L x6"),  # no 1.5 L single: not linked to the 500 ML one
+        pack("14", "WATER 500ML x1"),  # one piece is not a pack
+    )
+    links = {code: (link.single, link.pieces, link.exact) for code, link in cat.pack_links.items()}
+    assert links == {"10": ("1", 6, True), "12": ("2", 12, False)}
+    assert sorted(cat.unlinked_packs) == ["11", "13"]
+
+
+def match_in(cat, l, tmp_path):
+    return match_line(l, SUPPLIER, "INV1", cat, SupplierItems([], tmp_path / "t.xlsx"))
+
+
+def test_pack_barcode_counts_as_single_pieces(tmp_path):
+    cat = catalogue(pack("10", "FIZZ CAN 330ML x6", "5555555555550"))
+    m = match_in(cat, line("FIZZ 6PACK", "5555555555550", 10, 3.00), tmp_path)  # 6 x 0.50
+    assert (m.item_code, m.pack_factor, m.method, m.flags) == ("1", 6, "barcode+pack_link", [])
+
+
+def test_pack_price_that_disagrees_is_asked_with_n_suggested(tmp_path):
+    cat = catalogue(pack("10", "FIZZ CAN 330ML x6", "5555555555550"))
+    m = match_in(cat, line("FIZZ 6PACK", "5555555555550", 10, 6.00), tmp_path)  # priced like 12
+    assert (m.item_code, m.pack_factor) == ("1", None)
+    assert [(f.level, f.data["suggested"]) for f in m.flags] == [(YELLOW, 6)]

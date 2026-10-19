@@ -11,10 +11,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import openpyxl
+from rapidfuzz import fuzz
 
 POWERSOFT_DIR = Path("data/powersoft")
 EXPORT_COLUMNS = ["Item Code", "Item Description", "Barcode", "VAT", "Cost", "Price 1", "Supplier", "Brand",
                   "Category", "Storable"]
+# A pack sub-item is named like its single piece plus " xN": "KYKKOS WATER 500ML X12" (D-005 amendment).
+PACK_NAME = re.compile(r"^(.*\S)\s*[xX]\s*(\d+)$")
+PACK_LINK_SCORE = 85  # 0-100 name similarity needed to link a pack to a single piece by a near name
+PACK_LINK_MARGIN = 5  # ... and it must beat the next item by this much, or nothing is linked
 
 
 @dataclass
@@ -48,6 +53,9 @@ class Catalogue:
         self.name_keys: dict[str, str] = {}  # code -> name_key(description), computed once
         for item in items.values():
             self._index(item)
+        self.pack_links: dict[str, PackLink] = {}  # pack item code -> its single piece
+        self.unlinked_packs: list[str] = []  # packs named "... xN" with no clear single piece
+        self._link_packs()
 
     def _index(self, item: Item) -> None:
         if item.barcode:
@@ -87,6 +95,32 @@ class Catalogue:
                 )
         return cls(items, _category_codes(powersoft_dir), _supplier_codes(powersoft_dir))
 
+    def _link_packs(self) -> None:
+        """Link each pack sub-item to its single piece by name (D-005 amendment).
+
+        The same name wins. Otherwise the most similar name, if it is close (a typo like 'Kidder') and
+        clearly ahead of the next one; the sizes in the pack's name (500 ML) must be in the single's
+        name too. Anything unclear stays unlinked, and staff are asked once, as before.
+        """
+        singles = [i for i in self.items.values() if i.storable]
+        for pack in self.items.values():
+            m = PACK_NAME.match(pack.description)
+            if pack.storable or not m or int(m.group(2)) < 2:
+                continue
+            base = name_key(m.group(1))
+            exact = [i.code for i in singles if self.name_keys[i.code] == base]
+            if len(exact) == 1:
+                self.pack_links[pack.code] = PackLink(exact[0], int(m.group(2)), True)
+                continue
+            sizes = _sizes(base)
+            scored = sorted(((_name_similarity(base, self.name_keys[i.code]), i.code) for i in singles
+                             if sizes <= _sizes(self.name_keys[i.code])), reverse=True)
+            if scored and scored[0][0] >= PACK_LINK_SCORE and (
+                    len(scored) == 1 or scored[0][0] - scored[1][0] >= PACK_LINK_MARGIN):
+                self.pack_links[pack.code] = PackLink(scored[0][1], int(m.group(2)), False)
+            else:
+                self.unlinked_packs.append(pack.code)
+
     def add_local(self, item: Item) -> None:
         """Merge an item the tool created (D-018 point 4), unless the export already has it."""
         if item.code in self.items:
@@ -97,6 +131,24 @@ class Catalogue:
 
     def highest_numeric_code(self) -> int:
         return max((int(c) for c in self.items if c.isdigit()), default=0)
+
+
+@dataclass
+class PackLink:
+    single: str  # item code of one piece
+    pieces: int  # pieces in one pack
+    exact: bool  # linked by the same name (True) or by a near name (False: shown to Zein to check)
+
+
+def _sizes(key: str) -> set[str]:
+    """The number words of a name key: '500', '1.5', '2'."""
+    return {t for t in key.split() if any(c.isdigit() for c in t)}
+
+
+def _name_similarity(a: str, b: str) -> float:
+    """0-100. Plain similarity catches typos; token-set similarity catches a missing word ('AQUA 500 ML'
+    vs 'AQUA WATER 500 ML')."""
+    return max(fuzz.ratio(a, b), fuzz.token_set_ratio(a, b))
 
 
 def _category_codes(powersoft_dir: Path) -> dict[str, str]:

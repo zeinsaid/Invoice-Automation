@@ -50,6 +50,7 @@ uv run invoice-automation                 # process everything in input/ (moved 
 uv run invoice-automation path/to/scan.pdf # process specific files and leave them where they are
 uv run invoice-automation --zein          # Zein's mode: also work through invoices staff sent to Zein
 uv run invoice-automation --no-window     # no window: finish what needs no questions (testing)
+uv run invoice-automation --packs         # after a new PowerSoft export: which single item each pack counts as
 uv run pytest                             # unit tests (synthetic data only)
 ```
 

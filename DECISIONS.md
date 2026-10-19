@@ -158,6 +158,25 @@ Cassandra's FACT is trusted outright, because cigarettes are always sold per pac
 
 **Amendment (2026-10-15): quantities always go to the storable item.** Some products exist in PowerSoft both as a single piece and as a pack (water 6-packs, beer 8-packs). The pack is set up as a **non-storable sub-item** that deducts from the single piece's stock when sold. The tool therefore always outputs the **storable** item, and never a non-storable one. A product bought as a pack is converted to pieces of the storable item. Items that exist as both single and pack but are *both* storable (e.g. Kinder Delice 177 bar / 1399 box) are a set-up problem. Zein is resolving them with staff (disable one, or make the pack a sub-item). Until then, the tool flags any line that matches either one of such a pair.
 
+**Amendment (2026-10-19): packs are linked to their single piece by name, so staff aren't asked.**
+*Context.* Until now, a line that matched a non-storable pack (by its barcode or its name) asked staff once: "Which single item is this?" Zein will add more packs (Kinder, 7-Up, Hell). PowerSoft has no export of sub-item links, only one item at a time. But every pack is already named like its single piece plus " xN" (KYKKOS WATER 500ML X12 → KYKKOS WATER 500ML).
+
+*Decision.* When the export loads, each non-storable item named "<name> xN" (N ≥ 2) is linked to a storable single item:
+1. **Same name** (after the usual name clean-up): linked.
+2. Otherwise the **most similar name**, if it scores at least 85/100, beats the next item by at least 5 points, and contains every number in the pack's name. This covers a missing word (AQUA 500ML x12 → AQUA WATER 500ML) and a typo (Kidder → Kinder). The number rule stops 1.5 L from linking to 500 ML.
+3. **Anything unclear is not linked.** For example, "7UP CAN x6" fits 7UP CAN and 7UP ZERO CAN equally well. Staff are then asked once, as before.
+
+A line that matches a linked pack goes in as the single item, N pieces per invoice unit. N is checked by price like every pack size (D-020). If the price disagrees, staff are asked with N suggested. If there is no known cost to compare with, N is used. The result is learned like any confirmed answer and listed in Zein's report.
+
+`uv run invoice-automation --packs` lists every link, marks near-name links "check it", and lists the packs it couldn't link. Zein runs it after loading a new export. Naming rule for new packs: **the single item's exact name + " xN"**.
+
+*Alternatives considered.*
+- A hand-kept list of pack links: rejected, because it is one more thing to keep in step with PowerSoft. The names already carry the link.
+- Keep asking staff once per pack: works, but each new pack costs a question and relies on staff choosing the right single.
+- A loose fuzzy match without the margin and number rules: rejected. A wrong link silently books the wrong item, which is worse than a question.
+
+*Why.* PowerSoft already holds the link in the name, so reading it there means nothing to maintain. Strict rules plus the price check mean a wrong link is very unlikely to go unnoticed, and the `--packs` list lets Zein see every link at a glance.
+
 ---
 
 ## D-006: Matching order: learned mapping → barcode → fuzzy name → ask staff (LLM step dropped)
