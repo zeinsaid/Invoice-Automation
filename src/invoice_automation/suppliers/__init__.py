@@ -7,7 +7,7 @@ A profile provides:
 Table-style invoices share their parsing in base.py.
 """
 
-from . import (agrotis, andrikian, athenites, base, cassandra, cosmos, example, fereos, jumbo, pambos, partyice, rainbow,
+from . import (agrotis, andrikian, athenites, cassandra, cosmos, example, fereos, jumbo, pambos, partyice, rainbow,
                vassos)
 
 PROFILES = [athenites, cassandra, cosmos, fereos, andrikian, vassos, agrotis, rainbow, pambos, partyice, jumbo,

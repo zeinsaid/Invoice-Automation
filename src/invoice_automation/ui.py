@@ -17,7 +17,7 @@ from .catalogue import name_key
 from .crops import crop
 from .extract import analyze_page
 from .layout import ean_is_valid, parse_number
-from .pipeline import (DONE, MANUAL, NEW, PENDING, READY_DIR, RESCAN, SKIPPED, ZEIN_LIST, mark_uploaded,
+from .pipeline import (MANUAL, NEW, PENDING, READY_DIR, RESCAN, SKIPPED, ZEIN_LIST, mark_uploaded,
                        search_items, suggested_category, waiting_uploads)
 from .session import Session, _where
 

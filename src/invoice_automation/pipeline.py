@@ -25,7 +25,7 @@ from . import suppliers
 from .catalogue import Catalogue, Item, name_key
 from .extract import analyze_page
 from .matching import Match, match_line, similar_names, suggest_pack, usable_barcode
-from .model import (MATCH, NEW, ORANGE, PACK, RED, UNREADABLE, YELLOW, ZEIN, Flag, Invoice, InvoiceLine)
+from .model import MATCH, ORANGE, PACK, RED, UNREADABLE, ZEIN, Flag, Invoice, InvoiceLine
 from .files import save_atomic
 from .output import OutputRow, write_invoice_excel
 from .supplier_items import PROVISIONAL, TABLE_PATH, TRUSTED, SupplierItem, SupplierItems

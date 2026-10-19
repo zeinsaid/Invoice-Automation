@@ -70,7 +70,7 @@ I designed this project and made its decisions: what to automate and what to lea
 │   ├── session.py, ui.py      the review window
 │   └── files.py, backup.py    crash-safe saving, daily backups
 ├── tests/                     unit tests on made-up data
-├── deploy/                    shop PC launchers, first install, update and undo
+├── deploy/                    shop PC launchers, first install, update and undo, staff and admin guides
 ├── scripts/                   the demo invoice and recording, early experiments
 └── docs/demo/                 the made-up invoice and the recording
 ```
@@ -91,9 +91,9 @@ uv run invoice-automation --no-window      # no window: finish what needs no que
 uv run invoice-automation --packs          # which single item each pack item counts as
 ```
 
-The tool needs the shop's PowerSoft item export in `data/powersoft/`, so it won't match items without the shop's data. The shop PC install is in [`deploy/setup.ps1`](deploy/setup.ps1).
+The tool needs the shop's PowerSoft item export (`data/powersoft/itemsList.csv`), so it won't match items without the shop's data. The shop PC install is [`deploy/setup.ps1`](deploy/setup.ps1); day-to-day running is in the [staff guide](deploy/guides/Staff%20guide.html) and the [admin guide](deploy/guides/Admin%20guide.html).
 
-**For shop staff:** put the scans in `input`, double-click **Process Invoices**, answer the questions from the paper invoice and the product, then upload the files in `output\Ready to upload` to PowerSoft.
+**For shop staff:** put the scans in `input`, double-click **Process Invoices**, answer the questions from the paper invoice and the product, then follow the Done screen: Items import for the files it lists, Purchase order for every file in `output\Ready to upload`, then tick them and press **Mark as uploaded** so nothing goes in twice.
 
 ## Data and privacy
 
