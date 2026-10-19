@@ -36,7 +36,7 @@ Invoke-WebRequest "https://raw.githubusercontent.com/zeinsaid/Invoice-Automation
 if ($LASTEXITCODE -ne 0) { exit 1 }
 Remove-Item $update
 
-foreach ($launcher in "Process Invoices.bat", "Zein.bat") {
+foreach ($launcher in "Process Invoices.bat", "Admin.bat") {
     Copy-Item (Join-Path $Root "app\deploy\$launcher") (Join-Path $Root $launcher) -Force
 }
 

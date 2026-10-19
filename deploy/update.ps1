@@ -6,7 +6,7 @@ touched, so nothing the tool has learned can be lost by an update. The previous 
 app.old: if the new code doesn't install or start, it is put back automatically, and "Undo" puts
 it back by hand.
 
-Run from Zein.bat (option 2 or 3), or for the first install from setup.ps1.
+Run from Admin.bat (option 2 or 3), or for the first install from setup.ps1.
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Root,
