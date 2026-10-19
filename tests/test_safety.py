@@ -94,3 +94,18 @@ def test_itemslist_is_taken_in_once_as_a_dated_copy(powersoft):
     copies = sorted(p.name for p in powersoft.glob("items_export_*.csv"))
     Catalogue.load(powersoft)  # the same itemsList again: no new copy
     assert sorted(p.name for p in powersoft.glob("items_export_*.csv")) == copies
+
+
+def test_marked_files_leave_ready_to_upload_and_the_rest_stay(tmp_path, monkeypatch):
+    from invoice_automation import pipeline
+    monkeypatch.chdir(tmp_path)
+    ready = tmp_path / "output/Ready to upload"
+    ready.mkdir(parents=True)
+    for name in ("A 1.xlsx", "B 2.xlsx"):
+        (ready / name).write_text("x")
+    pipeline._save_to_upload({"A 1.xlsx": {"items_import": "1 new item", "made": "2026-10-18"},
+                              "B 2.xlsx": {"items_import": "", "made": "2026-10-19"}})
+    assert [w["file"] for w in pipeline.waiting_uploads()] == ["A 1.xlsx", "B 2.xlsx"]  # oldest first
+    pipeline.mark_uploaded(["A 1.xlsx"])
+    assert [w["file"] for w in pipeline.waiting_uploads()] == ["B 2.xlsx"]
+    assert len(list((tmp_path / "output/Uploaded").rglob("A 1.xlsx"))) == 1

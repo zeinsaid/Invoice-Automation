@@ -7,7 +7,7 @@ import os
 import threading
 import tkinter as tk
 import traceback
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from tkinter import messagebox, ttk
 
@@ -17,8 +17,8 @@ from .catalogue import name_key
 from .crops import crop
 from .extract import analyze_page
 from .layout import ean_is_valid, parse_number
-from .pipeline import (DONE, MANUAL, NEW, PENDING, READY_DIR, RESCAN, SKIPPED, ZEIN_LIST, search_items,
-                       suggested_category)
+from .pipeline import (DONE, MANUAL, NEW, PENDING, READY_DIR, RESCAN, SKIPPED, ZEIN_LIST, mark_uploaded,
+                       search_items, suggested_category, waiting_uploads)
 from .session import Session, _where
 
 LOG = Path("logs/error.log")
@@ -563,24 +563,26 @@ class App:
     # --- The end ---------------------------------------------------------------------------------
 
     def show_done(self):
-        self.clear()
         self.session.write_report()
+        self.render_done()
+
+    def render_done(self):
+        self.clear()
         groups = self.session.summary()
+        waiting = waiting_uploads()  # this run's files and any left from before
         row = tk.Frame(self.body, bg="white")
         row.pack(side="bottom", anchor="w")
         content = self.scroll_area()  # a long list of invoices scrolls; the buttons stay put
         self.label(content, "Done", 26, True, pady=(10, 10))
-        if groups.get(DONE):
-            self.upload_steps(content, [e.result for e in groups[DONE]])
+        if waiting:
+            self.upload_steps(content, waiting)
         sections = [
-            (DONE, "Ready to upload (in the 'Ready to upload' folder):", GREEN,
-             lambda e: e.result.output_file.name),
             (RESCAN, "Scan again (all pages), then run again:", RED_BG, lambda e: f"{_where(e.entry)}\n      {e.note}"),
             (MANUAL, "Enter by hand:", GREY, lambda e: f"{_where(e.entry)}: {e.note}"),
             (ZEIN_LIST, "Waiting for Zein (do not upload):", RED_BG, lambda e: _where(e.entry)),
             (SKIPPED, "Skipped (already done before):", GREY, lambda e: _where(e.entry)),
         ]
-        shown = False
+        shown = bool(waiting)
         for status, title, color, text in sections:
             if groups.get(status):
                 shown = True
@@ -589,30 +591,66 @@ class App:
                     self.label(content, "   " + text(e), 13)
         if not shown:
             self.label(content, "Nothing to do. Put the scanned invoices in the 'input' folder first.", 15)
-        if groups.get(DONE):
+        if waiting:
             self.button(row, "Open 'Ready to upload'", lambda: os.startfile(READY_DIR.resolve()), GREEN)
-        self.button(row, "Close", self.root.destroy)
+        self.button(row, "Close", self.close_done)
 
-    def upload_steps(self, parent, results):
+    def upload_steps(self, parent, waiting):
         """What staff do next in PowerSoft, so nobody has to open each Excel to decide. New items (and,
         until Zein has checked D-008, cost changes) need Items import first; then every file is
-        uploaded as a Purchase order."""
-        box = tk.Frame(parent, bg="#eef5ee", padx=16, pady=10)
+        uploaded as a Purchase order. Then staff tick what they uploaded, and those files move to
+        'Uploaded', so nothing can go in twice."""
+        bg = "#eef5ee"
+        box = tk.Frame(parent, bg=bg, padx=16, pady=10)
         box.pack(fill="x", pady=(0, 6))
-        self.label(box, "What to do now in PowerSoft:", 15, True).configure(bg="#eef5ee")
+        today = str(date.today())
+
+        def name(w):
+            return w["file"] + (f"   (from {w['made']})" if w["made"] and w["made"] != today else "")
+
+        self.label(box, "What to do now in PowerSoft:", 15, True).configure(bg=bg)
         step = 1
-        first = [r for r in results if r.items_import]
+        first = [w for w in waiting if w["items_import"]]
         if first:
-            self.label(box, f"{step}.  Items import, with Modify ticked:", 14, True, pady=(6, 0)).configure(bg="#eef5ee")
-            for r in first:
-                self.label(box, f"      {r.output_file.name}   ({r.items_import})", 13).configure(bg="#eef5ee")
+            self.label(box, f"{step}.  Items import, with Modify ticked:", 14, True, pady=(6, 0)).configure(bg=bg)
+            for w in first:
+                self.label(box, f"      {name(w)}   ({w['items_import']})", 13).configure(bg=bg)
             step += 1
-        what = "ALL the files" if len(results) > 1 else "the file"
-        self.label(box, f"{step}.  Purchase order: {what} in 'Ready to upload'.", 14, True,
-                   pady=(6, 0)).configure(bg="#eef5ee")
+        what = "ALL the files" if len(waiting) > 1 else "the file"
+        self.label(box, f"{step}.  Purchase order: {what} below.", 14, True, pady=(6, 0)).configure(bg=bg)
         if first:
             self.label(box, "Do step 1 first: the purchase order needs the new items and costs to be in PowerSoft.",
-                       12, color=GREY, pady=(4, 0)).configure(bg="#eef5ee")
+                       12, color=GREY, pady=(2, 0)).configure(bg=bg)
+        self.label(box, f"{step + 1}.  When it is in PowerSoft, tick it and press 'Mark as uploaded':", 14, True,
+                   pady=(10, 2)).configure(bg=bg)
+        ticks = []
+        for w in waiting:
+            var = tk.BooleanVar(value=True)
+            tk.Checkbutton(box, text=name(w), variable=var, font=(FONT, 13), bg=bg, activebackground=bg,
+                           anchor="w").pack(anchor="w", padx=(18, 0))
+            ticks.append((w["file"], var))
+
+        def mark():
+            names = [f for f, var in ticks if var.get()]
+            if not names:
+                return
+            if not messagebox.askyesno("Uploaded?", f"Are these {len(names)} file(s) in PowerSoft now (both steps)?\n\n"
+                                                    "They move to the 'Uploaded' folder."):
+                return
+            try:
+                mark_uploaded(names)
+            except PermissionError as e:
+                return messagebox.showerror("Close Excel", str(e))
+            self.render_done()
+
+        self.button(box, "Mark as uploaded", mark, GREEN, size=12).configure(highlightbackground=bg)
+
+    def close_done(self):
+        if waiting_uploads() and not messagebox.askyesno(
+                "Not uploaded yet", "Some files are not marked as uploaded.\n\nClose anyway? They will be shown "
+                                    "again next time, so you can upload them later."):
+            return
+        self.root.destroy()
 
     def on_close(self):
         if self.current and not messagebox.askyesno(

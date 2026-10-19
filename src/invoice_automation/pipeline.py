@@ -36,7 +36,9 @@ NEW_ITEMS = STATE_DIR / "new_items.csv"  # codes issued by the tool = local addi
 PROCESSED = STATE_DIR / "processed_invoices.csv"  # duplicate-scan guard (D-018)
 PRICE_CHANGES = STATE_DIR / "price_changes.csv"  # D-009
 FLAG_ITEMS = Path("data/flag_items.csv")  # items that always need a look, e.g. single/pack pairs (D-005)
-READY_DIR = Path("output/Ready to upload")
+READY_DIR = Path("output/Ready to upload")  # only files not yet uploaded to PowerSoft
+UPLOADED_DIR = Path("output/Uploaded")  # files staff marked as uploaded, by date
+TO_UPLOAD = STATE_DIR / "to_upload.json"  # file -> its upload steps, until it is marked as uploaded
 SCANS_DIR = Path("processed")  # scans are moved here from input/ (D-002)
 
 TOTAL_TOLERANCE = 0.05  # euros
@@ -409,7 +411,51 @@ def finalize(ev: Evaluation, ctx: Context) -> Result:
     _record_price_changes(inv, changes)
     ev.entry.status = DONE
     ev.entry.output = output_file.name
-    return Result(inv, rows, output_file, changes, confirmed)
+    result = Result(inv, rows, output_file, changes, confirmed)
+    waiting = _load_to_upload()
+    waiting[output_file.name] = {"items_import": result.items_import, "made": str(date.today())}
+    _save_to_upload(waiting)
+    return result
+
+
+# --- Uploads: what is waiting in 'Ready to upload', and marking it as uploaded -------------------------
+
+def _load_to_upload() -> dict[str, dict]:
+    return json.loads(TO_UPLOAD.read_text(encoding="utf-8")) if TO_UPLOAD.exists() else {}
+
+
+def _save_to_upload(waiting: dict[str, dict]) -> None:
+    text = json.dumps(waiting, ensure_ascii=False, indent=1)
+    save_atomic(TO_UPLOAD, lambda tmp: tmp.write_text(text, encoding="utf-8"))
+
+
+def waiting_uploads() -> list[dict]:
+    """Every file in 'Ready to upload', oldest first, with its upload steps: {file, items_import, made}.
+    A file the tool has no record of (put there by hand) gets made = "" and no Items import step."""
+    waiting = _load_to_upload()
+    files = sorted((f for f in READY_DIR.glob("*.xlsx") if not f.name.startswith("~$")),
+                   key=lambda f: (waiting.get(f.name, {}).get("made", ""), f.name)) if READY_DIR.exists() else []
+    return [{"file": f.name, "items_import": waiting.get(f.name, {}).get("items_import", ""),
+             "made": waiting.get(f.name, {}).get("made", "")} for f in files]
+
+
+def mark_uploaded(names: list[str]) -> None:
+    """Staff uploaded these to PowerSoft: move them out of 'Ready to upload', so they can't go in twice."""
+    target = UPLOADED_DIR / str(date.today())
+    target.mkdir(parents=True, exist_ok=True)
+    waiting = _load_to_upload()
+    for name in names:
+        source = READY_DIR / name
+        if source.exists():
+            dest = target / name
+            if dest.exists():
+                dest = target / f"{source.stem} {datetime.now():%H%M%S}{source.suffix}"
+            try:
+                shutil.move(source, dest)
+            except PermissionError:
+                raise PermissionError(f"{name} is open in Excel. Close it and press the button again.") from None
+        waiting.pop(name, None)
+    _save_to_upload(waiting)
 
 
 def _check_cost(row: OutputRow, inv: Invoice, table: SupplierItems, changes: list) -> None:
