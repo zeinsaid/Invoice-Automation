@@ -195,4 +195,4 @@ def test_brand_suggested_from_the_start_of_the_name():
                     Item("7", "COLA CAN", "", 19, 0.5, 1.0, SUPPLIER, "COCA-COLA", "", True))
     assert suggested_brand("7UP ZERO CAN 330ML", cat) == "7UP ZERO"  # the longest brand wins
     assert suggested_brand("COCA COLA CANS 330ML", cat) == "COCA-COLA"  # punctuation doesn't matter
-    assert suggested_brand("TOBLERONE MILK 100G", cat) == ""  # no guess: staff type it
+    assert suggested_brand("Toblerone Milk 100G", cat) == "TOBLERONE"  # a new brand: the first word

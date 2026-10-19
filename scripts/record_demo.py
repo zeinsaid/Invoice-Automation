@@ -149,10 +149,9 @@ def run(app):
     type_into(app, barcode, "2000000000046", "Staff fill in a new item", "Barcode scanned from the bar itself", every=7)
     type_into(app, price, "1.20", "Staff fill in a new item",
               "The cost comes from the invoice, never typed: 1.52 per bar before VAT")
-    combo, brand = [w for w in walk(app.body) if isinstance(w, ttk.Combobox)]
+    combo = next(w for w in walk(app.body) if isinstance(w, ttk.Combobox))
     if not combo.get():
         combo.set(next((c for c in combo.cget("values") if "CHOC" in c.upper()), combo.cget("values")[0]))
-    brand.set("TOBLERONE")  # a brand we don't use yet: typed in
     button(app, "Save new item").invoke()
     add(grab(app), "A selling price below cost is refused", "It also catches a wrong 'how many' answer", 3.5)
     price.delete(0, "end")
@@ -238,18 +237,23 @@ if __name__ == "__main__":
     app.root.state("normal")
     app.root.geometry(f"{SIZE[0]}x{SIZE[1]}+0+0")
     app.root.attributes("-alpha", 0.01)
+    failed = []
+    # A script error stops the recording quietly, instead of the tool's "contact Zein" box on screen.
+    app.root.report_callback_exception = lambda *exc: (failed.append(exc[1]), app.root.destroy())
 
     def start():
         if app.current is None:
             return app.root.after(300, start)
         try:
             run(app)
-        except Exception:
+        except Exception as e:  # noqa: BLE001 - re-raised once the window is gone
+            failed.append(e)
             app.root.destroy()
-            raise
 
     app.root.after(300, start)
     app.run()
+    if failed:
+        raise failed[0]
     if not frames or len(frames) < 10:
         sys.exit("Recording stopped early")
     save()

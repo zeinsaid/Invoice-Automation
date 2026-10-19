@@ -134,6 +134,8 @@ class Session:
             timing = f", {len(e.entry.answers)} questions in {e.seconds / 60:.1f} min" if e.seconds else ""
             out.append(f"READY  {r.output_file.name}  ({len(r.invoice.lines)} lines -> {len(r.rows)} items, "
                        f"total {r.invoice.computed_total:.2f}{timing})")
+            out.append(f"   upload: Items import first ({r.items_import}), then Purchase order" if r.items_import
+                       else "   upload: Purchase order only")
             out += [f"   {c}" if c.startswith("pack: ") else f"   staff: {c}" for c in r.confirmed]
             out += [f"   price: {code} {name}: {old:.2f} -> {new:.3f} ({(new - old) / old * 100:+.0f}%)"
                     for code, name, old, new in r.price_changes]

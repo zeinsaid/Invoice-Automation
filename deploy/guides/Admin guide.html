@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invoices: admin guide</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; max-width: 860px; margin: 32px auto; padding: 0 20px; color: #111; background: #fff; line-height: 1.5; font-size: 16px; }
+  h1 { font-size: 28px; margin-bottom: 4px; }
+  h2 { font-size: 20px; margin-top: 30px; border-bottom: 2px solid #3949ab; padding-bottom: 4px; }
+  .sub { color: #555; margin-top: 0; }
+  code, pre { font-family: Consolas, monospace; background: #f3f3f6; border-radius: 4px; }
+  code { padding: 1px 5px; }
+  pre { padding: 10px 14px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+  td, th { border: 1px solid #ddd; padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: #f3f3f6; }
+  .warn { background: #fdecea; border-left: 5px solid #c62828; padding: 10px 16px; margin: 14px 0; }
+  .box { background: #eef0fa; border-left: 5px solid #3949ab; padding: 10px 16px; margin: 14px 0; }
+  @media print { body { margin: 0; font-size: 13px; } }
+</style>
+</head>
+<body>
+<h1>Invoice tool: admin guide</h1>
+<p class="sub">For Zein, over AnyDesk. Design and reasons: DECISIONS.md in the code (D-023 for this set-up).</p>
+
+<h2>The tool folder</h2>
+<table>
+  <tr><th>Folder / file</th><th>What it is</th><th>Update replaces it?</th></tr>
+  <tr><td><code>Process Invoices.bat</code></td><td>Staff button (the desktop shortcut points here)</td><td>No</td></tr>
+  <tr><td><code>Admin.bat</code></td><td>Your menu (below)</td><td>No</td></tr>
+  <tr><td><code>app\</code></td><td>The code, from GitHub</td><td><b>Yes, only this</b> (old copy kept as <code>app.old</code>)</td></tr>
+  <tr><td><code>data\</code></td><td>Everything learned, the PowerSoft files, reports, backups, this guide</td><td>Never</td></tr>
+  <tr><td><code>input\</code> <code>output\</code> <code>processed\</code></td><td>Scans in; Excel files out; scans after reading</td><td>Never</td></tr>
+  <tr><td><code>logs\error.log</code></td><td>Every error, with full details and time</td><td>Never</td></tr>
+  <tr><td><code>.env</code></td><td>The Azure endpoint and key</td><td>Never</td></tr>
+  <tr><td><code>tools\</code></td><td>uv, Python, the libraries; <code>version.txt</code> = the running commit</td><td>Libraries only</td></tr>
+</table>
+<div class="warn">Everything lives on the ThawSpace drive. Anything on C: (including the desktop) is wiped at restart unless Deep Freeze is in thawed mode.</div>
+
+<h2>Admin.bat menu</h2>
+<table>
+  <tr><td><b>1</b></td><td>Review window in admin mode: also the invoices staff sent to you ("I'm not sure"). Extra buttons: <i>Take out (enter by hand)</i> and <i>Start this invoice again</i>.</td></tr>
+  <tr><td><b>2</b></td><td><b>Update</b> from GitHub. Downloads the newest code, checks it starts with the real data, and goes back by itself if it doesn't. <code>data\</code> is never touched.</td></tr>
+  <tr><td><b>3</b></td><td><b>Undo</b> the last update (puts <code>app.old</code> back).</td></tr>
+  <tr><td><b>4</b></td><td>Pack check: which single item each pack item counts as. Optional: the report shows this by itself after a new export.</td></tr>
+</table>
+
+<h2>When staff message you</h2>
+<ol>
+  <li><b>"Contact Zein" error:</b> open <code>logs\error.log</code> and read the last entry (bottom of the file).</li>
+  <li><b>"Waiting for Zein":</b> run <code>Admin.bat</code> &rarr; 1 and answer the question, or take the invoice out to enter by hand.</li>
+  <li><b>What happened in a run:</b> <code>data\reports\</code>, newest file. It lists each invoice, what staff confirmed, cost changes, new items, what to upload, skipped and by-hand invoices, and notes about the PowerSoft export.</li>
+  <li>A fix in the code: Claude pushes it to GitHub, then <code>Admin.bat</code> &rarr; 2.</li>
+</ol>
+
+<h2>PowerSoft item export (about once a month)</h2>
+<p>The tool's list of items, costs and barcodes. Do it after adding items or packs in PowerSoft by hand, or when the report says the export is old.</p>
+<ol>
+  <li>In PowerSoft, open the item list export and choose the columns:
+    <ul>
+      <li><b>Main details:</b> tick <b>Supplier, Barcode, VAT, Brand, Category</b>. Untick everything else (Stock is ticked by default: untick it).</li>
+      <li><b>Prices:</b> keep <b>Price 1</b>, untick <b>Price 2, 3, 4, 5</b>, tick <b>Cost</b>.</li>
+      <li><b>Others:</b> tick <b>Storable</b>.</li>
+      <li>Nothing else.</li>
+    </ul>
+  </li>
+  <li>Export as <b>CSV</b>. Save it as <code>itemsList.csv</code> (PowerSoft's own name) into<br><code>&lt;tool folder&gt;\data\powersoft\</code>, replacing the old one.</li>
+  <li>That's all. The next run keeps a dated copy and uses it. Your next report starts with "New PowerSoft export in use", and lists every pack and the single item it counts as. Check any line marked <b>NEAR NAME</b> or <b>NOT LINKED</b>.</li>
+</ol>
+<div class="box">If the export is missing a column or looks cut off (far fewer items than the last one), the tool keeps using the previous export and the report says why. Export again.</div>
+
+<h2>Other PowerSoft files</h2>
+<ul>
+  <li><b>New supplier or category in PowerSoft?</b> Export the list again and replace <code>data\powersoft\suppliers.xlsx</code> or <code>categories.xlsx</code>, with the same file name and the same layout as now. The report warns if a supplier the tool reads has no supplier code.</li>
+  <li><b>Packs</b> (a non-storable item that takes N singles off stock): name it exactly like the single item plus <code>xN</code>, e.g. <code>KYKKOS WATER 500ML X12</code>. Then export again.</li>
+  <li><code>data\flag_items.csv</code>: items that always get a question (single/pack pairs that are both storable).</li>
+</ul>
+
+<h2>Backups and restoring</h2>
+<ul>
+  <li>The first run each day zips everything learned into <code>data\backups\backup &lt;date&gt;.zip</code> (30 days kept).</li>
+  <li>To restore: close the tool, unzip the newest good backup into <code>data\</code> and overwrite.</li>
+  <li>Now and then, copy the whole <code>data\</code> folder to your own PC over AnyDesk (protects against a dead disk).</li>
+  <li>If <code>supplier_items.xlsx</code> goes missing, the tool refuses to start ("contact Zein") rather than starting from zero. Restore it from a backup.</li>
+</ul>
+
+<h2>Things to remember</h2>
+<ul>
+  <li><b>Azure:</b> the free trial ends around <b>14 November 2026</b>. Upgrade the subscription to pay-as-you-go before then (the Document Intelligence resource stays on the free F0 tier, 500 pages a month). The key is in <code>.env</code>.</li>
+  <li><b>Cost updates (open question):</b> check once whether a Purchase order upload changes an item's stored cost. Until then, the Done screen sends files with cost changes through Items import (Modify) too. Tell Claude the answer.</li>
+  <li><b>Time saved:</b> <code>data\state\timings.csv</code> has lines, questions and minutes per invoice: the real numbers for the CV.</li>
+  <li>Staff never create items by hand in PowerSoft: the tool hands out item codes in order and would clash.</li>
+</ul>
+
+<h2>First install / new PC</h2>
+<ol>
+  <li>Make the tool folder on the ThawSpace drive, put <code>setup.ps1</code> in it (from <code>app\deploy\</code> or GitHub) and run it with PowerShell.</li>
+  <li>Copy in <code>.env</code> and <code>data\</code> (or at least <code>data\powersoft\</code>, <code>data\reference\</code> and <code>flag_items.csv</code>).</li>
+  <li>Make the desktop shortcut in Deep Freeze thawed mode, or it disappears at restart.</li>
+</ol>
+</body>
+</html>

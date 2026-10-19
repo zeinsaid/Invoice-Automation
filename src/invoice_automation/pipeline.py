@@ -41,6 +41,9 @@ SCANS_DIR = Path("processed")  # scans are moved here from input/ (D-002)
 
 TOTAL_TOLERANCE = 0.05  # euros
 PRICE_CHANGE_MIN = 0.01  # euros per piece; smaller differences are rounding (PowerSoft keeps 2 decimals)
+# D-008: it isn't known yet whether PowerSoft's Purchase order upload updates an item's stored cost. Until
+# Zein has checked, a file with cost changes also goes through Items import (with Modify ticked).
+COSTS_NEED_ITEMS_IMPORT = True
 PROMOTE_WITHIN = 0.15  # a provisional match becomes trusted if its cost is within 15% of the known cost (D-018)
 
 # Queue statuses. NEW = a whole PDF not yet split into invoices.
@@ -334,6 +337,21 @@ class Result:
     price_changes: list[tuple[str, str, float, float]] = field(default_factory=list)
     confirmed: list[str] = field(default_factory=list)  # what staff answered, for Zein's report
 
+    @property
+    def new_items(self) -> int:
+        return sum(1 for row in self.rows if any(f.column == "new" for f in row.flags))
+
+    @property
+    def items_import(self) -> str:
+        """Why this file must also go through PowerSoft's Items import (before the Purchase order), or ""."""
+        reasons = []
+        if self.new_items:
+            reasons.append(f"{self.new_items} new item{'s' if self.new_items > 1 else ''}")
+        if COSTS_NEED_ITEMS_IMPORT and self.price_changes:
+            n = len(self.price_changes)
+            reasons.append(f"{n} cost change{'s' if n > 1 else ''}")
+        return ", ".join(reasons)
+
 
 def finalize(ev: Evaluation, ctx: Context) -> Result:
     inv = ev.invoice
@@ -470,7 +488,8 @@ def _issue_new_item(lines: list[InvoiceLine], inv: Invoice, form: dict, pieces_p
     amount = sum(line.amount_excl_vat for line in lines)
     item = Item(code=code, description=form["description"], barcode=form["barcode"], vat=lines[0].vat_rate,
                 cost=amount / pieces if pieces else 0.0, price=float(form["price"]),
-                supplier=inv.supplier, brand=form.get("brand", ""), category=form.get("category", ""), storable=True)
+                supplier=inv.supplier, brand=form.get("brand") or suggested_brand(form["description"], catalogue),
+                category=form.get("category", ""), storable=True)
     catalogue.add_local(item)
     # The whole file is rewritten (crash-safe), so a file from before a column was added stays readable.
     _write_csv(NEW_ITEMS, NEW_ITEM_FIELDS, existing + [{
@@ -489,11 +508,12 @@ def suggested_category(candidates, catalogue: Catalogue) -> str:
 
 
 def suggested_brand(name: str, catalogue: Catalogue) -> str:
-    """The brand a new item's name starts with, if we already use it ('KINDER BUENO WHITE T3' -> KINDER).
-    The longest wins (7UP ZERO before 7UP). Otherwise empty: a similar item's brand is too often wrong."""
+    """A new item's brand, filled in by the tool (staff aren't asked: nothing in the shop uses it).
+    A brand we already use that the name starts with ('KINDER BUENO WHITE T3' -> KINDER; the longest
+    wins, so 7UP ZERO before 7UP), otherwise the name's first word ('TOBLERONE MILK 100G' -> TOBLERONE)."""
     key = name_key(name)
     hits = [b for b in catalogue.brands if key == name_key(b) or key.startswith(name_key(b) + " ")]
-    return max(hits, key=len, default="")
+    return max(hits, key=len, default="") or (name.split() or [""])[0].upper()
 
 
 def search_items(text: str, ctx: Context, supplier: str | None) -> list[tuple[str, str, float]]:

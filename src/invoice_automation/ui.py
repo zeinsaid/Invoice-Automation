@@ -17,7 +17,7 @@ from .catalogue import name_key
 from .crops import crop
 from .extract import analyze_page
 from .layout import ean_is_valid, parse_number
-from .pipeline import (DONE, MANUAL, NEW, PENDING, READY_DIR, RESCAN, SKIPPED, ZEIN_LIST, search_items, suggested_brand,
+from .pipeline import (DONE, MANUAL, NEW, PENDING, READY_DIR, RESCAN, SKIPPED, ZEIN_LIST, search_items,
                        suggested_category)
 from .session import Session, _where
 
@@ -418,15 +418,11 @@ class App:
         if suggestion in categories:
             category.set(suggestion)
         add(4, "Category", category)
-        # Every item in PowerSoft has a brand. Staff pick one we already use (the list), or type a new one.
-        brand = ttk.Combobox(form, values=ctx.catalogue.brands, font=(FONT, 13), width=30)
-        brand.set(suggested_brand(line.description, ctx.catalogue))
-        add(5, "Brand (pick, or type a new one)", brand)
         # More than 1 piece per unit usually means a pack of something we already sell (e.g. a 3-pack of
         # Kinder Bueno White when 1372 is already the single bar): offer those before a duplicate is made.
-        # Under the fields, before Save: it fits any window width, and the page scrolls if it gets long.
+        # Beside the fields, where it catches the eye (the tool runs on PC screens, wide enough for it).
         stocked = tk.Frame(form, bg="white")
-        stocked.grid(row=6, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        stocked.grid(row=0, column=2, rowspan=5, sticky="nw", padx=(36, 0))
         shown_for = None
 
         def show_stocked(*_):
@@ -499,10 +495,8 @@ class App:
                                          "price, and how many you sell from 1 unit.")
             if not category.get():
                 return error.config(text="Choose a category.")
-            if not brand.get().strip():
-                return error.config(text="Choose the brand from the list, or type it (e.g. KINDER).")
             self.answer({"new": {"description": name, "barcode": code, "pieces": int(pieces), "price": price,
-                                 "category": category.get(), "brand": " ".join(brand.get().upper().split())}})
+                                 "category": category.get()}})
 
         row = tk.Frame(area, bg="white")
         row.pack(anchor="w", pady=(6, 0))
@@ -576,6 +570,8 @@ class App:
         row.pack(side="bottom", anchor="w")
         content = self.scroll_area()  # a long list of invoices scrolls; the buttons stay put
         self.label(content, "Done", 26, True, pady=(10, 10))
+        if groups.get(DONE):
+            self.upload_steps(content, [e.result for e in groups[DONE]])
         sections = [
             (DONE, "Ready to upload (in the 'Ready to upload' folder):", GREEN,
              lambda e: e.result.output_file.name),
@@ -596,6 +592,27 @@ class App:
         if groups.get(DONE):
             self.button(row, "Open 'Ready to upload'", lambda: os.startfile(READY_DIR.resolve()), GREEN)
         self.button(row, "Close", self.root.destroy)
+
+    def upload_steps(self, parent, results):
+        """What staff do next in PowerSoft, so nobody has to open each Excel to decide. New items (and,
+        until Zein has checked D-008, cost changes) need Items import first; then every file is
+        uploaded as a Purchase order."""
+        box = tk.Frame(parent, bg="#eef5ee", padx=16, pady=10)
+        box.pack(fill="x", pady=(0, 6))
+        self.label(box, "What to do now in PowerSoft:", 15, True).configure(bg="#eef5ee")
+        step = 1
+        first = [r for r in results if r.items_import]
+        if first:
+            self.label(box, f"{step}.  Items import, with Modify ticked:", 14, True, pady=(6, 0)).configure(bg="#eef5ee")
+            for r in first:
+                self.label(box, f"      {r.output_file.name}   ({r.items_import})", 13).configure(bg="#eef5ee")
+            step += 1
+        what = "ALL the files" if len(results) > 1 else "the file"
+        self.label(box, f"{step}.  Purchase order: {what} in 'Ready to upload'.", 14, True,
+                   pady=(6, 0)).configure(bg="#eef5ee")
+        if first:
+            self.label(box, "Do step 1 first: the purchase order needs the new items and costs to be in PowerSoft.",
+                       12, color=GREY, pady=(4, 0)).configure(bg="#eef5ee")
 
     def on_close(self):
         if self.current and not messagebox.askyesno(

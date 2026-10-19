@@ -8,10 +8,13 @@ contains them.
 import csv
 import re
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 import openpyxl
 from rapidfuzz import fuzz
+
+from .files import save_atomic
 
 POWERSOFT_DIR = Path("data/powersoft")
 EXPORT_COLUMNS = ["Item Code", "Item Description", "Barcode", "VAT", "Cost", "Price 1", "Supplier", "Brand",
@@ -69,6 +72,7 @@ class Catalogue:
     def load(cls, powersoft_dir: Path = POWERSOFT_DIR) -> "Catalogue":
         """The newest usable export (D-023). An export missing a needed column, or much smaller than
         the one before it (cut off), is skipped for the previous one, and Zein's report says why."""
+        _take_in_latest(powersoft_dir)
         exports = sorted(powersoft_dir.glob("items_export_*.csv"))
         if not exports:
             raise FileNotFoundError(f"No items_export_*.csv in {powersoft_dir}")
@@ -150,6 +154,25 @@ def _name_similarity(a: str, b: str) -> float:
     """0-100. Plain similarity catches typos; token-set similarity catches a missing word ('AQUA 500 ML'
     vs 'AQUA WATER 500 ML')."""
     return max(fuzz.ratio(a, b), fuzz.token_set_ratio(a, b))
+
+
+LATEST = "itemsList.csv"  # PowerSoft's own name for the export: Zein saves it here, over the last one
+KEEP_EXPORTS = 6
+
+
+def _take_in_latest(powersoft_dir: Path) -> None:
+    """Keep a dated copy of each new itemsList.csv (D-023), so an export that turns out bad can fall
+    back to the one before it, and the report knows how old the export is."""
+    latest = powersoft_dir / LATEST
+    if not latest.exists():
+        return
+    data = latest.read_bytes()
+    exports = sorted(powersoft_dir.glob("items_export_*.csv"))
+    if exports and exports[-1].read_bytes() == data:
+        return  # already taken in
+    save_atomic(powersoft_dir / f"items_export_{date.today()}.csv", lambda tmp: tmp.write_bytes(data))
+    for old in sorted(powersoft_dir.glob("items_export_*.csv"))[:-KEEP_EXPORTS]:
+        old.unlink()
 
 
 def _read_export(path: Path) -> dict[str, Item]:

@@ -82,3 +82,15 @@ def test_missing_learned_table_stops_instead_of_starting_over(tmp_path, monkeypa
     (tmp_path / "data/state/processed_invoices.csv").write_text("supplier,invoice\n")
     with pytest.raises(FileNotFoundError, match="backups"):
         Context.load()
+
+
+def test_itemslist_is_taken_in_once_as_a_dated_copy(powersoft):
+    write_export(powersoft, 1, 100)
+    write_export(powersoft, 2, 101)
+    (powersoft / "items_export_2026-10-02.csv").rename(powersoft / "itemsList.csv")  # PowerSoft's own name
+    first = Catalogue.load(powersoft)
+    assert len(first.items) == 101 and first.export_name.startswith("items_export_") and first.export_name != \
+        "items_export_2026-10-01.csv"
+    copies = sorted(p.name for p in powersoft.glob("items_export_*.csv"))
+    Catalogue.load(powersoft)  # the same itemsList again: no new copy
+    assert sorted(p.name for p in powersoft.glob("items_export_*.csv")) == copies

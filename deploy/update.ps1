@@ -32,6 +32,16 @@ function Swap-Back {
     }
 }
 
+function Copy-Guides {
+    # The staff guide sits beside the launcher; the admin guide is tucked into data\.
+    $guides = Join-Path $App "deploy\guides"
+    if (Test-Path $guides) {
+        Copy-Item (Join-Path $guides "Staff guide.html") $Root -Force
+        New-Item -ItemType Directory -Force (Join-Path $Root "data") | Out-Null
+        Copy-Item (Join-Path $guides "Admin guide.html") (Join-Path $Root "data") -Force
+    }
+}
+
 function Test-App {
     # Starts the tool far enough to load the code and read data\ (the export, the pack links).
     & $Uv sync --frozen --no-dev --project $App | Out-Host
@@ -49,6 +59,7 @@ if ($Undo) {
     Rename-Item $Old "app"
     & $Uv sync --frozen --no-dev --project $App | Out-Host
     Copy-Item (Join-Path $Tools "version.old.txt") (Join-Path $Tools "version.txt") -ErrorAction SilentlyContinue
+    Copy-Guides
     Write-Host "Back to the previous version."
     exit 0
 }
@@ -81,4 +92,5 @@ if (-not (Test-App)) {
     exit 1
 }
 Set-Content (Join-Path $Tools "version.txt") $sha
+Copy-Guides
 Write-Host "Updated to $($sha.Substring(0, 7)). Nothing in data\ was changed." -ForegroundColor Green
