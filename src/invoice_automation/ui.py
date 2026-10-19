@@ -37,6 +37,7 @@ class App:
         self.root.title("Invoices" + (" (Zein)" if session.zein else ""))
         self.root.geometry("1000x780")
         self.root.minsize(820, 640)
+        self.root.state("zoomed")  # the new-item form needs the height
         self.root.configure(bg="white")
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.root.report_callback_exception = lambda *exc: self.fail(exc[1])
@@ -139,6 +140,9 @@ class App:
 
     def show_question(self, entry, ev, q):
         self.clear()
+        # Packed first so it keeps its place when a long screen runs out of room.
+        bottom = tk.Frame(self.body, bg="white")
+        bottom.pack(side="bottom", fill="x")
         top = tk.Frame(self.body, bg="white")
         top.pack(fill="x")
         tk.Label(top, text=f"{entry.label}   ·   {Path(entry.file).name}", font=(FONT, 12), fg=GREY,
@@ -155,8 +159,6 @@ class App:
         area.pack(fill="x", pady=6)
         getattr(self, f"ask_{q.kind}")(area, entry, ev, q)
 
-        bottom = tk.Frame(self.body, bg="white")
-        bottom.pack(side="bottom", fill="x")
         if entry.answers:
             self.button(bottom, "< Previous question", self.go_back, size=11)
         if self.session.zein:
@@ -353,9 +355,30 @@ class App:
             return widget
 
         line = q.line
-        barcode = barcode or (line.barcode if ean_is_valid(line.barcode) else "")  # from the invoice; editable
-        fields["description"] = add(0, "Name", self.entry_box(form, line.description, width=36))
-        fields["barcode"] = add(1, "Barcode of ONE piece\n(scan or type)", self.entry_box(form, barcode, width=20))
+        # The barcode box starts empty unless staff scanned one on the previous screen: a pre-filled invoice
+        # barcode gets accepted unchecked, and it is often the pack's, not one piece's.
+        invoice_barcode = line.barcode if ean_is_valid(line.barcode) else ""
+        fields["description"] = add(0, "Name of ONE piece\n(not the pack)", self.entry_box(form, line.description, width=36))
+        barcode_cell = tk.Frame(form, bg="white")
+        fields["barcode"] = self.entry_box(barcode_cell, barcode, width=20)
+        fields["barcode"].pack(anchor="w")
+        tk.Label(barcode_cell, text="Scan it from the item itself, not from the invoice.", font=(FONT, 11), fg=GREY,
+                 bg="white").pack(anchor="w")
+        add(1, "Barcode of ONE piece\n(scan or type)", barcode_cell)
+        if invoice_barcode and not barcode:
+            def use_invoice_barcode():
+                if messagebox.askyesno(
+                        "Check the barcode",
+                        f"Look at ONE piece in your hand.\n\nIs this number printed on it?\n\n{invoice_barcode}\n\n"
+                        "Press Yes only if it is the same number, or if one piece has no barcode at all."):
+                    fields["barcode"].delete(0, "end")
+                    fields["barcode"].insert(0, invoice_barcode)
+            hint = tk.Frame(barcode_cell, bg="white")
+            hint.pack(anchor="w")
+            tk.Label(hint, text=f"Invoice barcode: {invoice_barcode}", font=(FONT, 11), fg=GREY,
+                     bg="white").pack(side="left")
+            tk.Button(hint, text="Use invoice barcode", command=use_invoice_barcode, font=(FONT, 10), relief="solid",
+                      bd=1, bg="white", cursor="hand2").pack(side="left", padx=(8, 0))
         fields["pieces"] = add(2, "How many do you sell from\n1 unit on the invoice?", self.entry_box(form, "1", width=6))
         fields["price"] = add(3, "Selling price € (with VAT)", self.entry_box(form, "", width=8))
         category = ttk.Combobox(form, values=categories, state="readonly", font=(FONT, 13), width=30)
@@ -363,6 +386,34 @@ class App:
         if suggestion in categories:
             category.set(suggestion)
         add(4, "Category", category)
+        # More than 1 piece per unit usually means a pack of something we already sell (e.g. a 3-pack of
+        # Kinder Bueno White when 1372 is already the single bar): offer those before a duplicate is made.
+        stocked = tk.Frame(area, bg="white")  # packed under the Save button, so Save never drops off the screen
+        shown_for = None
+
+        def show_stocked(*_):
+            nonlocal shown_for
+            pieces = parse_number(fields["pieces"].get())
+            name = fields["description"].get().strip() or line.description
+            key = name if pieces and pieces > 1 else None
+            if key == shown_for:
+                return
+            shown_for = key
+            for child in stocked.winfo_children():
+                child.destroy()
+            hits = search_items(name, ctx, ev.invoice.supplier) if key else []
+            hits = [h for h in hits if h[2] >= hits[0][2] - 8][:3] if hits else []  # only near the best match
+            if not hits:
+                return
+            self.label(stocked, "Do we already sell ONE piece of it? Then use that item, don't make a new one:", 13,
+                       True, pady=(8, 2))
+            for c, d, _ in hits:
+                row = tk.Frame(stocked, bg="white")
+                row.pack(anchor="w")
+                tk.Button(row, text="Use this one", command=lambda c=c: self.answer({"code": c}), font=(FONT, 11, "bold"),
+                          fg="white", bg=GREEN, activebackground=GREEN, relief="flat", padx=10,
+                          cursor="hand2").pack(side="left", pady=2)
+                tk.Label(row, text=f"{d}   (code {c})", font=(FONT, 13), bg="white").pack(side="left", padx=(8, 0))
         # The cost is never typed: it comes from the invoice, per piece (D-012 amendment). It is shown so a
         # wrong 'how many' answer, or a selling price below cost, stands out.
         unit_cost = line.amount_excl_vat / line.quantity if line.quantity else 0.0  # one invoice unit, before VAT
@@ -381,6 +432,8 @@ class App:
 
         for name in ("pieces", "price"):
             fields[name].bind("<KeyRelease>", show_cost)
+        fields["pieces"].bind("<KeyRelease>", show_stocked, add="+")
+        fields["description"].bind("<KeyRelease>", show_stocked)
         show_cost()
         (fields["price"] if barcode else fields["barcode"]).focus_set()
         error = self.label(area, "", 12, color=RED_BG, pady=(4, 0))
@@ -415,6 +468,7 @@ class App:
         row.pack(anchor="w", pady=(6, 0))
         self.button(row, "Save new item", save, GREEN, size=12)
         self.button(row, "Cancel", lambda: self.show_question(*self.current), size=12)
+        stocked.pack(anchor="w", fill="x")
 
     def ask_fix_line(self, area, entry, ev, q):
         self.label(area, "Look at the picture and the paper. Correct any number that is wrong:", 14, pady=(0, 6))

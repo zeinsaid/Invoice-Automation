@@ -45,6 +45,8 @@ Numbered record of design decisions: what was decided, why, and what else was co
 
 **Reasoning.** The Excel import already exists, works, and is what staff know. Producing that file removes about 95% of the manual work (reading and typing) with zero dependency on PowerSoft. The manual review is a cheap safety net, and the monthly stock count catches anything that slips through.
 
+**Amendment (2026-10-19): the PowerSoft API is dropped for good, not deferred.** PowerSoft quoted about €2,000 up front plus about €40 a month, roughly €10,000 over the life of the system, to save staff one manual upload per invoice. That is not worth it. The "phase 2" above is withdrawn. Consequences: the item list stays a periodic export (D-018), and the rule from D-012 stays permanent: once the tool is live, staff never create items by hand in PowerSoft, so the tool's next item code can't clash with a hand-made one.
+
 ---
 
 ## D-002: Double-click launcher with `input/` and `output/` folders; staff see only "Done" or "Contact Zein"
@@ -330,6 +332,13 @@ No separate new-items file is needed.
 - *Codes.* The full review found a risk: if staff create an item by hand in PowerSoft between exports, the tool can issue the same code for a different product. "Upload Items" then skips the tool's row, and the quantity upload adds the stock to the hand-made item. A separate range for the tool (5000+, or a letter prefix) was considered and **rejected by Zein**: it would let the same product be created twice under two codes, and PowerSoft drops the barcode of the second one, which is worse than a visible clash. Instead, once the tool is live, **staff never create items by hand**; new items only come through the tool, and anything odd goes to Zein. The PowerSoft API, if it is affordable, would remove the risk entirely (the tool could read live codes and create items itself). Zein is asking PowerSoft about it.
 - *Cost.* Staff never type a cost. It is the invoice amount per piece (line amount / quantity / "how many do you sell from 1 unit"), averaged over every line of that product. *Why:* hand-typed costs are how VAT-inclusive costs got into PowerSoft (1634-1637). The form shows the cost per piece as staff type, and refuses a selling price at or below it, which also catches a wrong "how many" answer (a 3-pack priced as one bar).
 - *Barcode.* Pre-filled from the invoice line and editable. Every item must have a barcode: if a single piece has none, the pack's barcode is used and Zein can remove it in PowerSoft later.
+
+**Amendment (2026-10-19): the form steers staff away from duplicate packs.** *Context:* a staff member created "Kinder Bueno White T3" as a new item although 1372 (one Kinder Bueno White bar) already existed. The invoice's barcode was pre-filled, and it was the 3-pack's.
+- *Already stocked.* When "how many do you sell from 1 unit" is more than 1, the form lists up to 3 items we already sell with a similar name (only those within 8 points of the best match), each with a "Use this one" button. That answers the question exactly like picking the item from the search list, so the normal pack-size check follows.
+- *Barcode no longer pre-filled* (replaces the 2026-10-16 barcode point). The box starts empty with the hint "Scan it from the item itself, not from the invoice". The invoice barcode is shown beside it with a "Use invoice barcode" button, which first asks "Look at ONE piece in your hand. Is this number printed on it?" A barcode staff scanned on the previous screen is still filled in, because that one came from the item.
+- *Name hint.* The name box is labelled "Name of ONE piece (not the pack)". Zein tells staff this means the unit we sell in.
+- *Alternatives.* Keep pre-filling and only add a hint: rejected, because a filled-in box looks already checked and gets accepted. No invoice barcode at all: rejected, because items with no barcode of their own still need one (see above).
+- *Why:* a duplicate item splits stock across two codes, and PowerSoft drops the barcode of the second one. One extra click for a real new item is cheaper than cleaning up a duplicate.
 
 ---
 
