@@ -28,6 +28,7 @@ Numbered record of design decisions: what was decided, why, and what else was co
 | D-020 | Athenites profile: barcode = purchase unit, VAT-inclusive amounts, pack factor learned per barcode | Accepted |
 | D-021 | Use `prebuilt-layout` only; the supplier profile interprets the table | Accepted (amended 2026-10-15) |
 | D-022 | Review window: staff answer questions from the paper and the shelf; the Excel is only written once an invoice is cleared | Accepted |
+| D-023 | Deployment: uv + launchers on the ThawSpace drive; code and data in separate folders; one-click update with automatic rollback; data safety and automatic checks | Accepted |
 
 ---
 
@@ -427,7 +428,7 @@ When the tool recognises an out-of-scope supplier, it skips the page and says so
 - `azure-ai-documentintelligence`: the official DI SDK
 - `rapidfuzz`: fuzzy matching
 
-How it gets onto the shop PC (bundled `.exe` vs. uv + launcher script) is decided when we reach deployment. Either way it lives on the ThawSpace drive.
+How it gets onto the shop PC (bundled `.exe` vs. uv + launcher script) is decided when we reach deployment. Either way it lives on the ThawSpace drive. *Decided in D-023: uv + launchers.*
 
 **Libraries actually used (2026-10-15):** the four above plus `python-dotenv` (reads `.env`), `pillow` (line pictures in the window), `tkinter` (the window; comes with Python) and `pytest` (tests).
 
@@ -696,3 +697,34 @@ The 11 VAT corrections were made by hand and verified in the second 2026-10-14 e
 - *Negative quantities* are a misread: invoices never print one, and returns come on their own slip with positive numbers and are entered by hand, not through the tool. Staff are asked to type the numbers from the paper; if they confirm a negative, the invoice goes to Zein.
 - *A file open in Excel* (the output, or `supplier_items.xlsx`) stops the invoice before anything is written, with "Close it and run again" instead of "contact Zein". Before, new codes could be issued and the Excel written with the learned table left unsaved.
 
+---
+
+## D-023: Deployment: uv + launchers on the ThawSpace drive; code and data in separate folders; one-click update with automatic rollback; data safety and automatic checks
+
+**Status:** Accepted · 2026-10-19
+
+**Context.** The tool goes onto the shop PC. Deep Freeze resets C: at every restart; every other drive is ThawSpace and keeps its changes. Zein maintains it from Dubai over AnyDesk. Over months, the tool builds up what staff have taught it (the supplier-items table, issued item codes, pack sizes). Zein's requirements: losing that must be close to impossible, fixes must be easy to ship, and anything that can be automatic should be, so there is less room for human error.
+
+**Decision.**
+
+1. **Folder layout on the ThawSpace drive.** `app\` holds only the code. Everything the tool keeps sits beside it: `data\`, `input\`, `output\`, `processed\`, `logs\` and `.env` (the Azure key). `tools\` holds uv, Python and the libraries. The launchers run the tool from the tool folder, and every path in the code is relative to it, so the code never writes inside `app\`.
+2. **uv + launchers, not a bundled .exe.** `Process Invoices.bat` (staff; a desktop shortcut) and `Zein.bat` (a menu: Zein's mode, update, undo, pack check). Through environment variables, uv puts Python, the libraries and its cache in `tools\`; by default it would use the user profile on C:, which Deep Freeze wipes. `uvw` (uv without a console window) runs the tool, so staff see only its window.
+3. **Updates: one click, nothing in data touched, automatic rollback.** `update.ps1` downloads the newest commit of the public GitHub repo as a zip (no git or login needed on the shop PC) and keeps the previous code as `app.old`. It then installs the libraries and starts the tool far enough to read the real export. If that fails, the old code is put back by itself. "Undo" puts the previous version back by hand. The running version (commit) is written to `tools\version.txt`.
+4. **First install:** `setup.ps1` refuses to run on C:, installs a pinned uv into `tools\`, runs the update, copies the launchers and makes the desktop shortcut. It then lists the data files still to copy in from Zein's PC.
+5. **Data safety:**
+   - *Crash-safe saves.* Every file the tool keeps (learned table, queue, state CSVs, DI cache, output Excel) is written to a temporary copy and swapped in with one rename, so a power cut mid-save leaves the old file, never half a file.
+   - *Daily backup.* The first run each day zips the learned table, `flag_items.csv` and `data\state\` into `data\backups\` and keeps 30 days.
+   - *A missing learned table stops the tool.* If invoices were processed before but `supplier_items.xlsx` is gone, the tool stops with "contact Zein" (details in the log) instead of quietly starting again from the old supplier lists.
+   - *A bad export can't be used.* If the newest PowerSoft export is missing a needed column, or has under 90% of the previous export's items (cut off), the previous export is used and Zein's report says why. A bad export can never delete learned data anyway: rows for items an export lacks are skipped, not removed.
+   - *Start-up errors* go to `logs\error.log`, and staff see "The invoice tool could not start. Please contact Zein."
+6. **Automatic checks in Zein's report:** when a new export comes into use, the report lists every pack link and flags near-name and unlinked packs (D-005 amendment), so `--packs` is optional. It also reminds Zein when the export is more than 45 days old.
+7. **Measured time per invoice.** The tool logs, per invoice, the lines, the questions and the time from the first question to done (`data\state\timings.csv`, also in the report). The time saved can then be measured instead of estimated.
+8. **The PowerSoft export stays Zein's job,** about once a month: the export needs a custom column choice that staff shouldn't have to remember. He drops it into `data\powersoft\`; the tool takes the newest usable one.
+
+**Alternatives considered.**
+- *A bundled .exe (PyInstaller).* One file to copy, no Python on the PC. Rejected: every fix means a rebuild and a copy over AnyDesk, home-made .exe files are often flagged by antivirus, and the data would still need its own folder.
+- *Updating with git on the shop PC.* Git for Windows installs to C: (wiped) unless a portable copy is kept, and a pull can leave a half-updated folder. A zip download into a new folder, then a swap, is all-or-nothing and needs nothing installed.
+- *Updating automatically at every start.* No clicks, but a bad push would reach staff mid-shift with nobody watching. Updates stay a deliberate click by Zein, with the check and rollback.
+- *Backups off the PC (cloud).* Safer against a dead disk, but needs an account and credentials on the shop PC. Deferred: the daily zip covers mistakes and corruption, and Zein can copy `data\` off over AnyDesk now and then.
+
+**Reasoning.** The design splits what changes often (code) from what must never be lost (data), so the risky operation, an update, can only ever touch the replaceable half. Every remaining failure is either prevented (crash-safe saves, refusing a bad export, refusing to start without the learned table) or recoverable in a minute (daily backup, undo). Automatic report notes replace things Zein would otherwise have to remember.

@@ -33,7 +33,7 @@ def split_pages(pdf_path: Path) -> list[bytes]:
 
 
 def _client() -> DocumentIntelligenceClient:
-    load_dotenv()
+    load_dotenv(Path(".env"))  # the tool folder, next to data/, never inside the code (D-023)
     endpoint = os.environ.get("AZURE_DI_ENDPOINT")
     key = os.environ.get("AZURE_DI_KEY")
     if not endpoint or not key:
