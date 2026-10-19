@@ -26,8 +26,9 @@ from .catalogue import Catalogue, Item
 from .extract import analyze_page
 from .matching import Match, match_line, similar_names, suggest_pack, usable_barcode
 from .model import (MATCH, NEW, ORANGE, PACK, RED, UNREADABLE, YELLOW, ZEIN, Flag, Invoice, InvoiceLine)
+from .files import save_atomic
 from .output import OutputRow, write_invoice_excel
-from .supplier_items import PROVISIONAL, TRUSTED, SupplierItem, SupplierItems
+from .supplier_items import PROVISIONAL, TABLE_PATH, TRUSTED, SupplierItem, SupplierItems
 
 STATE_DIR = Path("data/state")
 QUEUE = STATE_DIR / "queue.json"
@@ -73,10 +74,8 @@ def load_queue() -> list[Entry]:
 
 
 def save_queue(entries: list[Entry]) -> None:
-    QUEUE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = QUEUE.with_suffix(".tmp")
-    tmp.write_text(json.dumps([asdict(e) for e in entries], ensure_ascii=False, indent=1), encoding="utf-8")
-    tmp.replace(QUEUE)  # never leave a half-written queue behind
+    text = json.dumps([asdict(e) for e in entries], ensure_ascii=False, indent=1)
+    save_atomic(QUEUE, lambda tmp: tmp.write_text(text, encoding="utf-8"))  # never a half-written queue
 
 
 def enqueue(pdfs: list[Path], move: bool) -> list[Entry]:
@@ -164,6 +163,11 @@ class Context:
 
     @classmethod
     def load(cls) -> "Context":
+        # Without the learned table the tool would quietly start again from the old supplier lists.
+        # Once invoices have been processed, a missing table is an accident: stop, and restore it (D-023).
+        if not TABLE_PATH.exists() and PROCESSED.exists():
+            raise FileNotFoundError(f"{TABLE_PATH} is missing, but invoices were processed before. Restore it "
+                                    "from the newest zip in data/backups. It is never re-created on its own.")
         catalogue = Catalogue.load()
         for item in _load_new_items():
             catalogue.add_local(item)
@@ -532,11 +536,12 @@ def _file_hash(path: Path) -> str:
 
 
 def _write_csv(path: Path, fields: list[str], rows: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fields)
-        w.writeheader()
-        w.writerows(rows)
+    def write(tmp: Path) -> None:
+        with tmp.open("w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(f, fields, restval="")
+            w.writeheader()
+            w.writerows(rows)
+    save_atomic(path, write)
 
 
 def _load_flag_items() -> dict[str, str]:

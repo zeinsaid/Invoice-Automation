@@ -15,6 +15,8 @@ from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.core.credentials import AzureKeyCredential
 from dotenv import load_dotenv
 
+from .files import save_atomic
+
 CACHE_DIR = Path("data/cache/di")
 
 
@@ -54,6 +56,6 @@ def analyze_page(pdf_path: Path, page_index: int, model_id: str) -> dict:
     poller = _client().begin_analyze_document(model_id, body=page_pdf, content_type="application/pdf")
     result = poller.result().as_dict()
 
-    cache_file.parent.mkdir(parents=True, exist_ok=True)
-    cache_file.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
+    text = json.dumps(result, ensure_ascii=False, indent=1)
+    save_atomic(cache_file, lambda tmp: tmp.write_text(text, encoding="utf-8"))
     return result

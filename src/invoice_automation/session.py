@@ -3,14 +3,21 @@
 The review window (ui.py) is a thin layer over this, so the same logic can be driven from tests.
 """
 
+import csv
+import re
+import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
-from .pipeline import (DONE, MANUAL, NEW, PENDING, RESCAN, SKIPPED, ZEIN_LIST, Context, Entry, Evaluation, Question,
-                       Result, enqueue, evaluate, finalize, load_queue, save_queue, split)
+from .files import save_atomic
+from .pipeline import (DONE, MANUAL, NEW, PENDING, RESCAN, SKIPPED, STATE_DIR, ZEIN_LIST, Context, Entry, Evaluation,
+                       Question, Result, enqueue, evaluate, finalize, load_queue, save_queue, split)
 
 REPORTS_DIR = Path("data/reports")
+LAST_EXPORT = STATE_DIR / "last_export.txt"  # the export the last report described (D-023)
+TIMINGS = STATE_DIR / "timings.csv"  # time staff spent per invoice, for real before/after numbers
+EXPORT_MAX_AGE = 45  # days; after that the report asks Zein for a fresh PowerSoft export
 
 
 @dataclass
@@ -19,6 +26,7 @@ class Event:
     status: str
     note: str = ""
     result: Result | None = None
+    seconds: int | None = None  # from its first question to done, in this run
 
 
 @dataclass
@@ -27,6 +35,7 @@ class Session:
     ctx: Context = field(default_factory=Context.load)
     entries: list[Entry] = field(default_factory=load_queue)
     events: list[Event] = field(default_factory=list)
+    started: dict[str, float] = field(default_factory=dict)  # invoice -> when its first question was shown
 
     def add(self, pdfs: list[Path], move: bool = True) -> None:
         self.entries = enqueue(pdfs, move)
@@ -43,11 +52,13 @@ class Session:
             if ev.outcome == "ready":
                 result = finalize(ev, self.ctx)
                 self._event(entry, DONE, result=result)
+                self._time(entry, result)
             elif ev.outcome in (MANUAL, SKIPPED, RESCAN):
                 self._event(entry, ev.outcome, ev.note)
             elif ev.outcome == "zein" and not self.zein:
                 self._event(entry, ZEIN_LIST, ev.note)
             else:
+                self.started.setdefault(entry.key, time.monotonic())
                 return entry, ev, ev.questions[0]
         return None
 
@@ -81,6 +92,22 @@ class Session:
         save_queue(self.entries)
         self.events = [e for e in self.events if e.entry is not entry] + [Event(entry, status, note, result)]
 
+    def _time(self, entry: Entry, result: Result) -> None:
+        """Log how long staff spent on the invoice, so the time saved can be measured, not guessed.
+        An invoice finished over two runs only counts the last one."""
+        start = self.started.pop(entry.key, None)
+        seconds = round(time.monotonic() - start) if start else 0
+        self.events[-1].seconds = seconds
+        row = {"date": str(date.today()), "invoice": entry.label, "lines": len(result.invoice.lines),
+               "questions": len(entry.answers), "seconds": seconds}
+        new = not TIMINGS.exists()
+        TIMINGS.parent.mkdir(parents=True, exist_ok=True)
+        with TIMINGS.open("a", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(f, list(row))
+            if new:
+                w.writeheader()
+            w.writerow(row)
+
     # --- What happened -------------------------------------------------------------------------
 
     def summary(self) -> dict[str, list[Event]]:
@@ -95,14 +122,17 @@ class Session:
 
     def write_report(self) -> Path | None:
         """Zein's report: everything that happened, price changes and what staff confirmed (D-011, D-022)."""
-        if not self.events:
+        notes = self._export_notes()
+        if not self.events and not notes:
             return None
         g = self.summary()
         out = [f"Invoice run {datetime.now():%Y-%m-%d %H:%M}" + (" (Zein)" if self.zein else ""), ""]
+        out += notes
         for e in g[DONE]:
             r = e.result
+            timing = f", {len(e.entry.answers)} questions in {e.seconds / 60:.1f} min" if e.seconds else ""
             out.append(f"READY  {r.output_file.name}  ({len(r.invoice.lines)} lines -> {len(r.rows)} items, "
-                       f"total {r.invoice.computed_total:.2f})")
+                       f"total {r.invoice.computed_total:.2f}{timing})")
             out += [f"   staff: {c}" for c in r.confirmed]
             out += [f"   price: {code} {name}: {old:.2f} -> {new:.3f} ({(new - old) / old * 100:+.0f}%)"
                     for code, name, old, new in r.price_changes]
@@ -112,7 +142,30 @@ class Session:
         REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         path = REPORTS_DIR / f"Report {datetime.now():%Y-%m-%d %H%M%S}.txt"
         path.write_text("\n".join(out) + "\n", encoding="utf-8")
+        name = self.ctx.catalogue.export_name
+        save_atomic(LAST_EXPORT, lambda tmp: tmp.write_text(name, encoding="utf-8"))  # its packs are now reported
         return path
+
+    def _export_notes(self) -> list[str]:
+        """Automatic checks on the PowerSoft export, so Zein doesn't have to remember them (D-023):
+        an export that was skipped and why, the pack links whenever a new export comes into use, and
+        a reminder when the export is getting old."""
+        cat = self.ctx.catalogue
+        notes = [f"EXPORT  {w}" for w in cat.warnings]
+        last = LAST_EXPORT.read_text(encoding="utf-8").strip() if LAST_EXPORT.exists() else ""
+        if cat.export_name != last:
+            notes.append(f"EXPORT  New PowerSoft export in use: {cat.export_name} ({len(cat.items)} items). Packs:")
+            for code, link in sorted(cat.pack_links.items(), key=lambda kv: cat.items[kv[0]].description):
+                check = "   <- NEAR NAME, check it" if not link.exact else ""
+                notes.append(f"   {cat.items[code].description} = {link.pieces} x "
+                             f"{cat.items[link.single].description} ({link.single}){check}")
+            for code in cat.unlinked_packs:
+                notes.append(f"   {cat.items[code].description} ({code}): NOT LINKED, staff will be asked. "
+                             "Rename it to the single item's exact name + ' xN'.")
+        m = re.search(r"\d{4}-\d{2}-\d{2}", cat.export_name)
+        if m and (date.today() - date.fromisoformat(m.group())).days > EXPORT_MAX_AGE:
+            notes.append(f"EXPORT  The PowerSoft export is from {m.group()}. Time for a new one.")
+        return notes + [""] if notes else []
 
 
 def _where(entry: Entry) -> str:

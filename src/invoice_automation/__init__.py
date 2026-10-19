@@ -23,9 +23,17 @@ def main() -> None:
         show_packs()
         return
 
+    from .backup import backup_daily
     from .session import Session
 
-    session = Session(zein=args.zein)
+    try:
+        backup_daily()  # before anything can change what was learned (D-023)
+        session = Session(zein=args.zein)
+    except Exception as e:  # noqa: BLE001 - staff see "contact Zein", the details go to the log
+        if args.no_window:
+            raise
+        _startup_failed(e)
+        return
     pdfs = args.pdfs or sorted(INPUT_DIR.glob("*.pdf"))
     move = not args.pdfs  # D-002: scans taken from input/ are moved out so nothing is processed twice
 
@@ -46,6 +54,24 @@ def main() -> None:
     from .ui import run_window
 
     run_window(session, pdfs, move)
+
+
+def _startup_failed(error: Exception) -> None:
+    """The window can't open (e.g. the learned table is missing): log it, and tell staff to call Zein."""
+    import traceback
+    import tkinter as tk
+    from datetime import datetime
+    from tkinter import messagebox
+
+    log = Path("logs/error.log")
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with log.open("a", encoding="utf-8") as f:
+        f.write(f"\n--- {datetime.now().isoformat(timespec='seconds')} (start-up)\n")
+        f.write("".join(traceback.format_exception(error)))
+    root = tk.Tk()
+    root.withdraw()
+    messagebox.showerror("Something went wrong", "The invoice tool could not start. Please contact Zein.")
+    root.destroy()
 
 
 def show_packs() -> None:

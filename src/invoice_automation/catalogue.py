@@ -19,6 +19,7 @@ EXPORT_COLUMNS = ["Item Code", "Item Description", "Barcode", "VAT", "Cost", "Pr
 # A pack sub-item is named like its single piece plus " xN": "KYKKOS WATER 500ML X12" (D-005 amendment).
 PACK_NAME = re.compile(r"^(.*\S)\s*[xX]\s*(\d+)$")
 PACK_LINK_SCORE = 85  # 0-100 name similarity needed to link a pack to a single piece by a near name
+SHRUNK = 0.9  # a new export with fewer than 90% of the previous one's items is taken as cut off (D-023)
 PACK_LINK_MARGIN = 5  # ... and it must beat the next item by this much, or nothing is linked
 
 
@@ -53,6 +54,8 @@ class Catalogue:
         self.name_keys: dict[str, str] = {}  # code -> name_key(description), computed once
         for item in items.values():
             self._index(item)
+        self.export_name = ""  # the export file in use
+        self.warnings: list[str] = []  # for Zein's report: an export that was skipped, and why
         self.pack_links: dict[str, PackLink] = {}  # pack item code -> its single piece
         self.unlinked_packs: list[str] = []  # packs named "... xN" with no clear single piece
         self._link_packs()
@@ -64,36 +67,29 @@ class Catalogue:
 
     @classmethod
     def load(cls, powersoft_dir: Path = POWERSOFT_DIR) -> "Catalogue":
+        """The newest usable export (D-023). An export missing a needed column, or much smaller than
+        the one before it (cut off), is skipped for the previous one, and Zein's report says why."""
         exports = sorted(powersoft_dir.glob("items_export_*.csv"))
         if not exports:
             raise FileNotFoundError(f"No items_export_*.csv in {powersoft_dir}")
-        items = {}
-        # PowerSoft exports in cp1253 (Greek Windows). Row 2 is a sub-header ('Incl') and is skipped.
-        with exports[-1].open(encoding="cp1253", newline="") as f:
-            reader = csv.reader(f)
-            header = next(reader)
-            col = {name: i for i, name in enumerate(header)}
-            missing = [c for c in EXPORT_COLUMNS if c not in col]
-            if missing:  # e.g. an export made without the Storable column (D-005: needed to never touch packs)
-                raise ValueError(f"{exports[-1].name} has no {', '.join(missing)} column. Export the items again "
-                                 f"with these columns: {', '.join(EXPORT_COLUMNS)}.")
-            for row in reader:
-                code = row[col["Item Code"]].strip()
-                if not code or row[col["Item Description"]] == "":
-                    continue
-                items[code] = Item(
-                    code=code,
-                    description=row[col["Item Description"]].strip(),
-                    barcode=row[col["Barcode"]].strip(),
-                    vat=int(row[col["VAT"]].rstrip("%") or 0),
-                    cost=_number(row[col["Cost"]]) or 0.0,
-                    price=_number(row[col["Price 1"]]),
-                    supplier=row[col["Supplier"]].strip(),
-                    brand=row[col["Brand"]].strip(),
-                    category=row[col["Category"]].strip(),
-                    storable=row[col["Storable"]].strip().lower() == "yes",
-                )
-        return cls(items, _category_codes(powersoft_dir), _supplier_codes(powersoft_dir))
+        warnings, usable = [], []  # usable: (file, items), newest first; two are enough to compare
+        for path in reversed(exports):
+            try:
+                usable.append((path, _read_export(path)))
+            except ValueError as e:
+                warnings.append(f"{path.name} was NOT used: {e}")
+            if len(usable) == 2:
+                break
+        if not usable:
+            raise ValueError(" ".join(warnings))
+        path, items = usable[0]
+        if len(usable) == 2 and len(items) < SHRUNK * len(usable[1][1]):
+            warnings.append(f"{path.name} was NOT used: it has {len(items)} items, the one before had "
+                            f"{len(usable[1][1])}, so it looks cut off. Export again.")
+            path, items = usable[1]
+        catalogue = cls(items, _category_codes(powersoft_dir), _supplier_codes(powersoft_dir))
+        catalogue.export_name, catalogue.warnings = path.name, warnings
+        return catalogue
 
     def _link_packs(self) -> None:
         """Link each pack sub-item to its single piece by name (D-005 amendment).
@@ -149,6 +145,40 @@ def _name_similarity(a: str, b: str) -> float:
     """0-100. Plain similarity catches typos; token-set similarity catches a missing word ('AQUA 500 ML'
     vs 'AQUA WATER 500 ML')."""
     return max(fuzz.ratio(a, b), fuzz.token_set_ratio(a, b))
+
+
+def _read_export(path: Path) -> dict[str, Item]:
+    items = {}
+    # PowerSoft exports in cp1253 (Greek Windows). Row 2 is a sub-header ('Incl') and is skipped.
+    with path.open(encoding="cp1253", newline="") as f:
+        reader = csv.reader(f)
+        header = next(reader, [])
+        col = {name: i for i, name in enumerate(header)}
+        missing = [c for c in EXPORT_COLUMNS if c not in col]
+        if missing:  # e.g. an export made without the Storable column (D-005: needed to never touch packs)
+            raise ValueError(f"it has no {', '.join(missing)} column. Export the items again with these columns: "
+                             f"{', '.join(EXPORT_COLUMNS)}.")
+        for row in reader:
+            if len(row) < len(header):  # a short row: the file was cut off mid-line
+                continue
+            code = row[col["Item Code"]].strip()
+            if not code or row[col["Item Description"]] == "":
+                continue
+            items[code] = Item(
+                code=code,
+                description=row[col["Item Description"]].strip(),
+                barcode=row[col["Barcode"]].strip(),
+                vat=int(row[col["VAT"]].rstrip("%") or 0),
+                cost=_number(row[col["Cost"]]) or 0.0,
+                price=_number(row[col["Price 1"]]),
+                supplier=row[col["Supplier"]].strip(),
+                brand=row[col["Brand"]].strip(),
+                category=row[col["Category"]].strip(),
+                storable=row[col["Storable"]].strip().lower() == "yes",
+            )
+    if not items:
+        raise ValueError("it has no items.")
+    return items
 
 
 def _category_codes(powersoft_dir: Path) -> dict[str, str]:

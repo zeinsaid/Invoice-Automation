@@ -8,6 +8,7 @@ from openpyxl.comments import Comment
 from openpyxl.styles import Font, PatternFill
 
 from .catalogue import Catalogue, Item
+from .files import save_atomic
 from .model import ORANGE, RED, SEVERITY, YELLOW, Flag
 
 # The 20-column import format PowerSoft set up for us (D-012), exactly as in MASTER_ITEM_LIST.xlsx.
@@ -66,11 +67,7 @@ def write_invoice_excel(path: Path, rows: list[OutputRow], catalogue: Catalogue,
     ws.freeze_panes = "A2"
     ws.sheet_view.topLeftCell = "A1"
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        wb.save(path)
-    except PermissionError:
-        raise PermissionError(f"{path.name} is open in Excel. Close it and run again.") from None
+    save_atomic(path, wb.save)
 
 
 def _apply_flags(ws, r: int, flags: list[Flag]) -> None:

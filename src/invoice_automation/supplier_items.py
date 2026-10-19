@@ -17,6 +17,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill
 
 from .catalogue import name_key
+from .files import save_atomic
 
 TABLE_PATH = Path("data/supplier_items.xlsx")
 LEGACY_PATH = Path("data/reference/legacy_supplier_lists.xlsx")
@@ -151,11 +152,7 @@ class SupplierItems:
             ws.column_dimensions[col].width = width
         ws.freeze_panes = "A2"
         ws.auto_filter.ref = ws.dimensions
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            wb.save(self.path)
-        except PermissionError:
-            raise PermissionError(f"{self.path} is open in Excel. Close it and run again.") from None
+        save_atomic(self.path, wb.save)  # a power cut mid-save must never cost what was learned
 
 
 def _seed_from_legacy() -> list[SupplierItem]:
