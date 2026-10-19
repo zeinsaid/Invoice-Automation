@@ -11,6 +11,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from .files import save_atomic
+from .suppliers import PROFILES, example
 from .pipeline import (DONE, MANUAL, NEW, PENDING, RESCAN, SKIPPED, STATE_DIR, ZEIN_LIST, Context, Entry, Evaluation,
                        Question, Result, enqueue, evaluate, finalize, load_queue, save_queue, split)
 
@@ -162,6 +163,10 @@ class Session:
             for code in cat.unlinked_packs:
                 notes.append(f"   {cat.items[code].description} ({code}): NOT LINKED, staff will be asked. "
                              "Rename it to the single item's exact name + ' xN'.")
+        for profile in PROFILES:  # a new item needs its supplier's PowerSoft code
+            if profile is not example and profile.SUPPLIER not in cat.supplier_codes:
+                notes.append(f"EXPORT  '{profile.SUPPLIER}' has no code in data/powersoft/suppliers.xlsx: new items "
+                             "from it would have no supplier code.")
         m = re.search(r"\d{4}-\d{2}-\d{2}", cat.export_name)
         if m and (date.today() - date.fromisoformat(m.group())).days > EXPORT_MAX_AGE:
             notes.append(f"EXPORT  The PowerSoft export is from {m.group()}. Time for a new one.")

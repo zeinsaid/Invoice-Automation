@@ -306,6 +306,8 @@ Each run also writes a short report (Excel or text) listing every flag in plain 
 
 **Update (2026-10-15):** D-022 turned flags into questions. Yellow and red issues are now asked in the review window before any Excel exists, so an uploadable file normally has no yellow or red. Orange (cost changed) stays as a cell colour with a comment, and every flag still appears in Zein's run report (`data/reports/`).
 
+**Amendment (2026-10-19): new items are red again.** The D-022 rework (flags become questions) dropped this by accident: an uploadable file had no red at all. Zein noticed it in the final test. A new item issued on this invoice now has its whole row red, with the comment "NEW item: check the name, barcode, price, category and brand before uploading". *Why:* a new item is the one row that creates something in PowerSoft rather than adding stock, so whoever uploads should look at it. Items issued on an earlier invoice are not red again.
+
 ---
 
 ## D-012: Unknown products become new item rows with the next item code; retail price left for a human
@@ -359,6 +361,11 @@ No separate new-items file is needed.
 - *Name hint.* The name box is labelled "Name of ONE piece (not the pack)". Zein tells staff this means the unit we sell in.
 - *Alternatives.* Keep pre-filling and only add a hint: rejected, because a filled-in box looks already checked and gets accepted. No invoice barcode at all: rejected, because items with no barcode of their own still need one (see above).
 - *Why:* a duplicate item splits stock across two codes, and PowerSoft drops the barcode of the second one. One extra click for a real new item is cheaper than cleaning up a duplicate.
+
+**Amendment (2026-10-19): new items get a brand, and a supplier code is checked.**
+- *Brand.* Every stocked item in PowerSoft has a brand (357 brands in use), but the form had no brand field. It now has a required "Brand" box: a list of the brands already in use, or a new one typed in (saved in capitals). It is pre-filled only when the item's name starts with a brand we already use (KINDER BUENO… → KINDER; the longest brand wins, so 7UP ZERO before 7UP). Otherwise it stays empty for staff to fill. A similar item's brand was rejected as the suggestion: for Toblerone the most similar item is an ION bar, which would put the wrong brand in front of staff.
+- *Supplier code.* A new item takes the invoice's supplier, with its code from `suppliers.xlsx`. Every real supplier profile has one (checked 2026-10-19). If a profile's supplier ever has no code, Zein's report says so at once, and a new item from it gets its supplier cells marked red with the reason. The made-up demo supplier is the only one without a code, on purpose.
+- Existing items keep PowerSoft's supplier and brand: the tool never edits item data (D-018).
 
 ---
 
@@ -696,6 +703,8 @@ The 11 VAT corrections were made by hand and verified in the second 2026-10-14 e
 - *Items that hold no stock* (Storable = No in PowerSoft) can never be chosen or written to an Excel: the search hides them, a scanned barcode of one is refused, and a match to one always asks for the single item (D-005).
 - *Negative quantities* are a misread: invoices never print one, and returns come on their own slip with positive numbers and are entered by hand, not through the tool. Staff are asked to type the numbers from the paper; if they confirm a negative, the invoice goes to Zein.
 - *A file open in Excel* (the output, or `supplier_items.xlsx`) stops the invoice before anything is written, with "Close it and run again" instead of "contact Zein". Before, new codes could be issued and the Excel written with the learned table left unsaved.
+
+**Amendment (2026-10-19): every screen scrolls.** In the final test, on a smaller monitor, the new-item form ran under the fixed bottom buttons and "Save new item" could not be reached. The question area (and the Done list) now scrolls, with the mouse wheel and a scroll bar that appears only when needed, while the bottom buttons stay in place. The "Do we already sell ONE piece of it?" list moved from beside the form to under it, so it isn't cut off in a narrow window. Checked at 1000×620. *Why:* the shop monitor is large, but a window can be resized or moved to another screen, and a button out of reach is a dead end for staff.
 
 ---
 

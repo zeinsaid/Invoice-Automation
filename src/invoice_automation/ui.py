@@ -17,7 +17,8 @@ from .catalogue import name_key
 from .crops import crop
 from .extract import analyze_page
 from .layout import ean_is_valid, parse_number
-from .pipeline import DONE, MANUAL, NEW, PENDING, READY_DIR, RESCAN, SKIPPED, ZEIN_LIST, search_items, suggested_category
+from .pipeline import (DONE, MANUAL, NEW, PENDING, READY_DIR, RESCAN, SKIPPED, ZEIN_LIST, search_items, suggested_brand,
+                       suggested_category)
 from .session import Session, _where
 
 LOG = Path("logs/error.log")
@@ -133,6 +134,36 @@ class App:
             box.bind("<Return>", lambda _: on_enter())  # barcode scanners type the code and press Enter
         return box
 
+    def scroll_area(self) -> tk.Frame:
+        """The part of the screen above the bottom buttons, scrollable, so nothing (like 'Save new item')
+        is ever out of reach on a small screen. Pack the bottom buttons before calling this."""
+        holder = tk.Frame(self.body, bg="white")
+        holder.pack(fill="both", expand=True)
+        canvas = tk.Canvas(holder, bg="white", highlightthickness=0)
+        bar = ttk.Scrollbar(holder, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=bar.set)
+        inner = tk.Frame(canvas, bg="white")
+        window = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def fit(_=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            if inner.winfo_reqheight() > canvas.winfo_height():  # the bar only when there is more to see
+                bar.pack(side="right", fill="y")
+            else:
+                bar.pack_forget()
+                canvas.yview_moveto(0)
+
+        inner.bind("<Configure>", fit)
+        canvas.bind("<Configure>", lambda e: (canvas.itemconfigure(window, width=e.width), fit()))
+        canvas.pack(side="left", fill="both", expand=True)
+
+        def wheel(e):
+            if bar.winfo_ismapped() and not isinstance(e.widget, tk.Listbox):  # a list scrolls itself
+                canvas.yview_scroll(int(-e.delta / 120), "units")
+
+        self.root.bind_all("<MouseWheel>", wheel)
+        return inner
+
     def show_message(self, title, text):
         self.clear()
         self.label(self.body, title, 24, True, pady=(80, 10))
@@ -140,10 +171,11 @@ class App:
 
     def show_question(self, entry, ev, q):
         self.clear()
-        # Packed first so it keeps its place when a long screen runs out of room.
+        # Packed first so it keeps its place; everything else scrolls above it.
         bottom = tk.Frame(self.body, bg="white")
         bottom.pack(side="bottom", fill="x")
-        top = tk.Frame(self.body, bg="white")
+        content = self.content = self.scroll_area()
+        top = tk.Frame(content, bg="white")
         top.pack(fill="x")
         tk.Label(top, text=f"{entry.label}   ·   {Path(entry.file).name}", font=(FONT, 12), fg=GREY,
                  bg="white").pack(side="left")
@@ -152,10 +184,10 @@ class App:
                  fg=GREY, bg="white").pack(side="right")
 
         self.show_picture(entry, ev, q)
-        self.label(self.body, q.title, 22, True, pady=(14, 2))
+        self.label(content, q.title, 22, True, pady=(14, 2))
         if q.detail:
-            self.label(self.body, q.detail, 13, color=GREY, pady=(0, 8))
-        area = tk.Frame(self.body, bg="white")
+            self.label(content, q.detail, 13, color=GREY, pady=(0, 8))
+        area = tk.Frame(content, bg="white")
         area.pack(fill="x", pady=6)
         getattr(self, f"ask_{q.kind}")(area, entry, ev, q)
 
@@ -199,7 +231,7 @@ class App:
         canvas = canvas.resize((int(canvas.width * scale), int(canvas.height * scale)), Image.LANCZOS)
         photo = ImageTk.PhotoImage(canvas)
         self.photos.append(photo)
-        tk.Label(self.body, image=photo, bg="white", bd=1, relief="solid").pack(anchor="w", pady=(10, 0))
+        tk.Label(self.content, image=photo, bg="white", bd=1, relief="solid").pack(anchor="w", pady=(10, 0))
 
     # --- One function per question kind ------------------------------------------------------------
 
@@ -386,11 +418,15 @@ class App:
         if suggestion in categories:
             category.set(suggestion)
         add(4, "Category", category)
+        # Every item in PowerSoft has a brand. Staff pick one we already use (the list), or type a new one.
+        brand = ttk.Combobox(form, values=ctx.catalogue.brands, font=(FONT, 13), width=30)
+        brand.set(suggested_brand(line.description, ctx.catalogue))
+        add(5, "Brand (pick, or type a new one)", brand)
         # More than 1 piece per unit usually means a pack of something we already sell (e.g. a 3-pack of
         # Kinder Bueno White when 1372 is already the single bar): offer those before a duplicate is made.
-        # Beside the form, in space that is empty anyway, so it fits on a small screen too.
+        # Under the fields, before Save: it fits any window width, and the page scrolls if it gets long.
         stocked = tk.Frame(form, bg="white")
-        stocked.grid(row=0, column=2, rowspan=5, sticky="nw", padx=(36, 0))
+        stocked.grid(row=6, column=0, columnspan=2, sticky="w", pady=(4, 0))
         shown_for = None
 
         def show_stocked(*_):
@@ -463,8 +499,10 @@ class App:
                                          "price, and how many you sell from 1 unit.")
             if not category.get():
                 return error.config(text="Choose a category.")
+            if not brand.get().strip():
+                return error.config(text="Choose the brand from the list, or type it (e.g. KINDER).")
             self.answer({"new": {"description": name, "barcode": code, "pieces": int(pieces), "price": price,
-                                 "category": category.get()}})
+                                 "category": category.get(), "brand": " ".join(brand.get().upper().split())}})
 
         row = tk.Frame(area, bg="white")
         row.pack(anchor="w", pady=(6, 0))
@@ -534,7 +572,10 @@ class App:
         self.clear()
         self.session.write_report()
         groups = self.session.summary()
-        self.label(self.body, "Done", 26, True, pady=(10, 10))
+        row = tk.Frame(self.body, bg="white")
+        row.pack(side="bottom", anchor="w")
+        content = self.scroll_area()  # a long list of invoices scrolls; the buttons stay put
+        self.label(content, "Done", 26, True, pady=(10, 10))
         sections = [
             (DONE, "Ready to upload (in the 'Ready to upload' folder):", GREEN,
              lambda e: e.result.output_file.name),
@@ -547,13 +588,11 @@ class App:
         for status, title, color, text in sections:
             if groups.get(status):
                 shown = True
-                self.label(self.body, title, 15, True, color=color, pady=(10, 2))
+                self.label(content, title, 15, True, color=color, pady=(10, 2))
                 for e in groups[status]:
-                    self.label(self.body, "   " + text(e), 13)
+                    self.label(content, "   " + text(e), 13)
         if not shown:
-            self.label(self.body, "Nothing to do. Put the scanned invoices in the 'input' folder first.", 15)
-        row = tk.Frame(self.body, bg="white")
-        row.pack(side="bottom", anchor="w")
+            self.label(content, "Nothing to do. Put the scanned invoices in the 'input' folder first.", 15)
         if groups.get(DONE):
             self.button(row, "Open 'Ready to upload'", lambda: os.startfile(READY_DIR.resolve()), GREEN)
         self.button(row, "Close", self.root.destroy)

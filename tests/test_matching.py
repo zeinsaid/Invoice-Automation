@@ -186,3 +186,13 @@ def test_pack_price_that_disagrees_is_asked_with_n_suggested(tmp_path):
     m = match_in(cat, line("FIZZ 6PACK", "5555555555550", 10, 6.00), tmp_path)  # priced like 12
     assert (m.item_code, m.pack_factor) == ("1", None)
     assert [(f.level, f.data["suggested"]) for f in m.flags] == [(YELLOW, 6)]
+
+
+def test_brand_suggested_from_the_start_of_the_name():
+    from invoice_automation.pipeline import suggested_brand
+    cat = catalogue(Item("5", "SEVEN CAN", "", 19, 0.5, 1.0, SUPPLIER, "7UP", "", True),
+                    Item("6", "SEVEN ZERO CAN", "", 19, 0.5, 1.0, SUPPLIER, "7UP ZERO", "", True),
+                    Item("7", "COLA CAN", "", 19, 0.5, 1.0, SUPPLIER, "COCA-COLA", "", True))
+    assert suggested_brand("7UP ZERO CAN 330ML", cat) == "7UP ZERO"  # the longest brand wins
+    assert suggested_brand("COCA COLA CANS 330ML", cat) == "COCA-COLA"  # punctuation doesn't matter
+    assert suggested_brand("TOBLERONE MILK 100G", cat) == ""  # no guess: staff type it

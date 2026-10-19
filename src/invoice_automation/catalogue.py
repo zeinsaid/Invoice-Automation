@@ -125,6 +125,11 @@ class Catalogue:
         self.items[item.code] = item
         self._index(item)
 
+    @property
+    def brands(self) -> list[str]:
+        """Every brand in use, for the new-item form's list."""
+        return sorted({i.brand for i in self.items.values() if i.brand})
+
     def highest_numeric_code(self) -> int:
         return max((int(c) for c in self.items if c.isdigit()), default=0)
 

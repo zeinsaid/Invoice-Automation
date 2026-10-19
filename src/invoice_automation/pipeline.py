@@ -22,7 +22,7 @@ from pathlib import Path
 import pymupdf
 
 from . import suppliers
-from .catalogue import Catalogue, Item
+from .catalogue import Catalogue, Item, name_key
 from .extract import analyze_page
 from .matching import Match, match_line, similar_names, suggest_pack, usable_barcode
 from .model import (MATCH, NEW, ORANGE, PACK, RED, UNREADABLE, YELLOW, ZEIN, Flag, Invoice, InvoiceLine)
@@ -377,6 +377,12 @@ def finalize(ev: Evaluation, ctx: Context) -> Result:
     for row in rows:
         row.cost = amounts[row.item.code] / row.quantity if row.quantity else 0.0
         _check_cost(row, inv, ctx.table, changes)
+        if row.item.code in issued.values():  # D-011: a new item is always red, so it gets a look before upload
+            row.flags.append(Flag(RED, "new", "NEW item: check the name, barcode, price, category and brand "
+                                              "before uploading."))
+            if not ctx.catalogue.supplier_codes.get(inv.supplier):
+                row.flags.append(Flag(RED, "supplier", f"'{inv.supplier}' has no supplier code in "
+                                                       "data/powersoft/suppliers.xlsx. Add it, then fix this cell."))
 
     _learn(ev, ctx)
     write_invoice_excel(output_file, rows, ctx.catalogue, inv.supplier)
@@ -436,7 +442,8 @@ def _learn(ev: Evaluation, ctx: Context) -> None:
 
 # --- New item codes (D-012) ---------------------------------------------------------------------
 
-NEW_ITEM_FIELDS = ["code", "supplier", "invoice", "barcode", "description", "vat", "cost", "price", "category", "issued"]
+NEW_ITEM_FIELDS = ["code", "supplier", "invoice", "barcode", "description", "vat", "cost", "price", "category", "brand",
+                   "issued"]
 
 
 def _load_new_items() -> list[Item]:
@@ -445,7 +452,8 @@ def _load_new_items() -> list[Item]:
     with NEW_ITEMS.open(encoding="utf-8", newline="") as f:
         return [Item(code=r["code"], description=r["description"], barcode=r["barcode"], vat=int(r["vat"]),
                      cost=float(r["cost"]), price=float(r["price"]) if r.get("price") else None,
-                     supplier=r["supplier"], brand="", category=r.get("category", ""), storable=True, local=True)
+                     supplier=r["supplier"], brand=r.get("brand", ""), category=r.get("category", ""), storable=True,
+                     local=True)
                 for r in csv.DictReader(f)]
 
 
@@ -462,17 +470,13 @@ def _issue_new_item(lines: list[InvoiceLine], inv: Invoice, form: dict, pieces_p
     amount = sum(line.amount_excl_vat for line in lines)
     item = Item(code=code, description=form["description"], barcode=form["barcode"], vat=lines[0].vat_rate,
                 cost=amount / pieces if pieces else 0.0, price=float(form["price"]),
-                supplier=inv.supplier, brand="", category=form.get("category", ""), storable=True)
+                supplier=inv.supplier, brand=form.get("brand", ""), category=form.get("category", ""), storable=True)
     catalogue.add_local(item)
-    write_header = not NEW_ITEMS.exists()
-    NEW_ITEMS.parent.mkdir(parents=True, exist_ok=True)
-    with NEW_ITEMS.open("a", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, NEW_ITEM_FIELDS)
-        if write_header:
-            w.writeheader()
-        w.writerow({"code": code, "supplier": inv.supplier, "invoice": inv.number, "barcode": item.barcode,
-                    "description": item.description, "vat": item.vat, "cost": round(item.cost, 4),
-                    "price": item.price, "category": item.category, "issued": str(date.today())})
+    # The whole file is rewritten (crash-safe), so a file from before a column was added stays readable.
+    _write_csv(NEW_ITEMS, NEW_ITEM_FIELDS, existing + [{
+        "code": code, "supplier": inv.supplier, "invoice": inv.number, "barcode": item.barcode,
+        "description": item.description, "vat": item.vat, "cost": round(item.cost, 4), "price": item.price,
+        "category": item.category, "brand": item.brand, "issued": str(date.today())}])
     return item
 
 
@@ -482,6 +486,14 @@ def suggested_category(candidates, catalogue: Catalogue) -> str:
         if catalogue.items[code].category:
             return catalogue.items[code].category
     return ""
+
+
+def suggested_brand(name: str, catalogue: Catalogue) -> str:
+    """The brand a new item's name starts with, if we already use it ('KINDER BUENO WHITE T3' -> KINDER).
+    The longest wins (7UP ZERO before 7UP). Otherwise empty: a similar item's brand is too often wrong."""
+    key = name_key(name)
+    hits = [b for b in catalogue.brands if key == name_key(b) or key.startswith(name_key(b) + " ")]
+    return max(hits, key=len, default="")
 
 
 def search_items(text: str, ctx: Context, supplier: str | None) -> list[tuple[str, str, float]]:

@@ -128,8 +128,14 @@ def run(app):
     button(app, "It is a NEW item").invoke()
     add(grab(app), "The new-item form", "The barcode must come from the item itself, not the invoice", 3)
     pieces = entries(app)[2]
-    type_into(app, pieces, "3", "1 unit holds 3 bars...",
-              "...so the form offers the single bar we already sell, instead of a duplicate item")
+    pieces.focus_force()
+    pieces.delete(0, "end")
+    pieces.insert(0, "3")
+    pieces.event_generate("<KeyRelease>")
+    app.root.update()
+    next(w for w in walk(app.body) if isinstance(w, tk.Canvas)).yview_moveto(1.0)  # the screen scrolls
+    add(grab(app), "1 unit holds 3 bars...",
+        "...so the form offers the single bar we already sell, instead of a duplicate item", 3.5)
     button(app, "Use this one").invoke()
     if title(app) == "How many pieces in 1 unit?":
         add(grab(app), "Booked as 3 single bars per pack", "The price confirms it: 3x one bar", 3)
@@ -143,9 +149,10 @@ def run(app):
     type_into(app, barcode, "2000000000046", "Staff fill in a new item", "Barcode scanned from the bar itself", every=7)
     type_into(app, price, "1.20", "Staff fill in a new item",
               "The cost comes from the invoice, never typed: 1.52 per bar before VAT")
-    combo = next(w for w in walk(app.body) if isinstance(w, ttk.Combobox))
+    combo, brand = [w for w in walk(app.body) if isinstance(w, ttk.Combobox)]
     if not combo.get():
         combo.set(next((c for c in combo.cget("values") if "CHOC" in c.upper()), combo.cget("values")[0]))
+    brand.set("TOBLERONE")  # a brand we don't use yet: typed in
     button(app, "Save new item").invoke()
     add(grab(app), "A selling price below cost is refused", "It also catches a wrong 'how many' answer", 3.5)
     price.delete(0, "end")

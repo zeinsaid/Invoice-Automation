@@ -25,7 +25,7 @@ FILLS = {
     RED: PatternFill("solid", fgColor="FF7C80"),
 }
 # Which cells a flag colours.
-FLAG_COLUMNS = {"item": ["B", "E"], "quantity": ["F"], "cost": ["H"]}
+FLAG_COLUMNS = {"item": ["B", "E"], "quantity": ["F"], "cost": ["H"], "supplier": ["Q", "R"]}  # anything else: the whole row
 
 
 @dataclass
