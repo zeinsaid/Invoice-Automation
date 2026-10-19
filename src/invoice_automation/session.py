@@ -138,7 +138,7 @@ class Session:
                     for code, name, old, new in r.price_changes]
         for status, label in ((ZEIN_LIST, "ZEIN"), (RESCAN, "RESCAN"), (MANUAL, "BY HAND"), (SKIPPED, "SKIPPED")):
             for e in g[status]:
-                out.append(f"{label:7}{_where(e.entry)}: {e.note}")
+                out.append(f"{label:8}{_where(e.entry)}: {e.note}")
         REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         path = REPORTS_DIR / f"Report {datetime.now():%Y-%m-%d %H%M%S}.txt"
         path.write_text("\n".join(out) + "\n", encoding="utf-8")
