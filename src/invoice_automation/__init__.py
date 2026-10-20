@@ -1,10 +1,12 @@
 """Turn scanned supplier invoices into PowerSoft-ready Excel files for The Plug."""
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
-INPUT_DIR = Path("input")
+# On the shop PC, env.bat points this at "1. Put invoice scans here", the folder staff see (D-024).
+INPUT_DIR = Path(os.environ.get("INVOICE_INPUT", "input"))
 
 
 def main() -> None:

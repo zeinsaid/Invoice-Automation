@@ -13,6 +13,7 @@ from tkinter import messagebox, ttk
 
 from PIL import Image, ImageTk
 
+from . import INPUT_DIR
 from .catalogue import name_key
 from .crops import crop
 from .extract import analyze_page
@@ -107,6 +108,15 @@ class App:
             self.session.not_sure(entry, question)
             self.next()
 
+    def not_for_shop(self):
+        entry, ev, question = self.current
+        line = question.line
+        if messagebox.askyesno("Not for the shop", f"Leave out line {line.line_no}: {line.description}?\n\n"
+                                                   "Only for things bought for home or the restaurant. "
+                                                   "It will not go into PowerSoft."):
+            self.session.not_for_shop(entry, ev, line)
+            self.next()
+
     # --- Screens --------------------------------------------------------------------------------
 
     def clear(self):
@@ -193,6 +203,9 @@ class App:
 
         if entry.answers:
             self.button(bottom, "< Previous question", self.go_back, size=11)
+        # D-025: on any question about one line, except typing its numbers (they must be right for the total).
+        if q.line is not None and q.kind != "fix_line":
+            self.button(bottom, "Not for the shop", self.not_for_shop, size=11)
         if self.session.zein:
             self.button(bottom, "Take out (enter by hand)", lambda: self._zein(self.session.drop), size=11)
             self.button(bottom, "Start this invoice again", lambda: self._zein(self.session.restart), size=11)
@@ -590,9 +603,9 @@ class App:
                 for e in groups[status]:
                     self.label(content, "   " + text(e), 13)
         if not shown:
-            self.label(content, "Nothing to do. Put the scanned invoices in the 'input' folder first.", 15)
+            self.label(content, f"Nothing to do. Put the scanned invoices in the '{INPUT_DIR.name}' folder first.", 15)
         if waiting:
-            self.button(row, "Open 'Ready to upload'", lambda: os.startfile(READY_DIR.resolve()), GREEN)
+            self.button(row, f"Open '{READY_DIR.name}'", lambda: os.startfile(READY_DIR.resolve()), GREEN)
         self.button(row, "Close", self.close_done)
 
     def upload_steps(self, parent, waiting):
@@ -635,7 +648,7 @@ class App:
             if not names:
                 return
             if not messagebox.askyesno("Uploaded?", f"Are these {len(names)} file(s) in PowerSoft now (both steps)?\n\n"
-                                                    "They move to the 'Uploaded' folder."):
+                                                    "They are moved out of the upload folder, so nobody uploads them twice."):
                 return
             try:
                 mark_uploaded(names)

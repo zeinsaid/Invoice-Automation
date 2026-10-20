@@ -1,8 +1,9 @@
 <#
 Update the code on the shop PC from GitHub, or undo the last update (D-023).
 
-Only <tool folder>\app is replaced. data\, input\, output\, processed\, logs\ and .env are never
-touched, so nothing the tool has learned can be lost by an update. The previous code is kept as
+-Root is the "Admin only" folder (D-024). Only its app\ is replaced: data\, output\, processed\,
+logs\, .env and the staff folders are never touched, so nothing the tool has learned can be lost by
+an update. The previous code is kept as
 app.old: if the new code doesn't install or start, it is put back automatically, and "Undo" puts
 it back by hand.
 
@@ -32,11 +33,13 @@ function Swap-Back {
     }
 }
 
-function Copy-Guides {
-    # The staff guide sits beside the launcher; the admin guide is tucked into data\.
+function Copy-StaffFiles {
+    # The launcher and the staff guide sit in the staff folder (D-024); the admin guide is tucked into data\.
+    $staff = Split-Path $Root -Parent
+    Copy-Item (Join-Path $App "deploy\Process Invoices.bat") $staff -Force
     $guides = Join-Path $App "deploy\guides"
     if (Test-Path $guides) {
-        Copy-Item (Join-Path $guides "Staff guide.html") $Root -Force
+        Copy-Item (Join-Path $guides "Staff guide.html") $staff -Force
         New-Item -ItemType Directory -Force (Join-Path $Root "data") | Out-Null
         Copy-Item (Join-Path $guides "Admin guide.html") (Join-Path $Root "data") -Force
     }
@@ -59,7 +62,7 @@ if ($Undo) {
     Rename-Item $Old "app"
     & $Uv sync --frozen --no-dev --project $App | Out-Host
     Copy-Item (Join-Path $Tools "version.old.txt") (Join-Path $Tools "version.txt") -ErrorAction SilentlyContinue
-    Copy-Guides
+    Copy-StaffFiles
     Write-Host "Back to the previous version."
     exit 0
 }
@@ -92,5 +95,5 @@ if (-not (Test-App)) {
     exit 1
 }
 Set-Content (Join-Path $Tools "version.txt") $sha
-Copy-Guides
+Copy-StaffFiles
 Write-Host "Updated to $($sha.Substring(0, 7)). Nothing in data\ was changed." -ForegroundColor Green

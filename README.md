@@ -49,11 +49,11 @@ The tool runs on the shop's Windows PC, which resets its C: drive at every resta
 - **Code and data are separate folders.** An update replaces only the code: one click downloads the newest version from this repository, checks that it starts against the real data, and goes back to the previous version on its own if it doesn't. What the tool has learned is never touched.
 - **Nothing learned can be lost to a crash.** Every file is saved to a temporary copy and swapped in with one rename, and the first run each day makes a backup (30 days kept).
 - **Bad input is refused, not used.** A cut-off item export, or one missing a column, is skipped for the previous one. If the learned table goes missing, the tool stops and asks for the owner rather than quietly starting from scratch.
-- **Staff-friendly.** Big buttons, short words, the line from the scan shown above every question, "< Previous question" for mis-clicks, and "I'm not sure" to pass an invoice to the owner. Errors read "contact Zein"; details go to a log.
+- **Staff-friendly.** Big buttons, short words, the line from the scan shown above every question, "< Previous question" for mis-clicks, "I'm not sure" to pass an invoice to the owner, and "Not for the shop" for something bought on the shop's invoice for elsewhere. Staff see one folder: where scans go, what to upload, the button and the guide; the rest is tucked away. Errors read "contact Zein"; details go to a log.
 
 ## How it was built
 
-I designed this project and made its decisions: what to automate and what to leave to staff, the matching order, how packs are detected, what gets asked and what doesn't. The code was written with [Claude Code](https://claude.com/claude-code), one reviewed step at a time. Every significant choice and its reasoning is in **[DECISIONS.md](DECISIONS.md)**: 23 decisions, from dropping an LLM step to the deployment design. The tool was tested on real invoices from every supplier it handles, including two rehearsals with real invoices before going live.
+I designed this project and made its decisions: what to automate and what to leave to staff, the matching order, how packs are detected, what gets asked and what doesn't. The code was written with [Claude Code](https://claude.com/claude-code), one reviewed step at a time. Every significant choice and its reasoning is in **[DECISIONS.md](DECISIONS.md)**: 26 decisions, from dropping an LLM step to the deployment design. The tool was tested on real invoices from every supplier it handles, including two rehearsals with real invoices before going live.
 
 ## Repository layout
 
@@ -93,7 +93,7 @@ uv run invoice-automation --packs          # which single item each pack item co
 
 The tool needs the shop's PowerSoft item export (`data/powersoft/itemsList.csv`), so it won't match items without the shop's data. The shop PC install is [`deploy/setup.ps1`](deploy/setup.ps1); day-to-day running is in the [staff guide](deploy/guides/Staff%20guide.html) and the [admin guide](deploy/guides/Admin%20guide.html).
 
-**For shop staff:** put the scans in `input`, double-click **Process Invoices**, answer the questions from the paper invoice and the product, then follow the Done screen: Items import for the files it lists, Purchase order for every file in `output\Ready to upload`, then tick them and press **Mark as uploaded** so nothing goes in twice.
+**For shop staff:** put the scans in `1. Put invoice scans here`, double-click **Process Invoices**, answer the questions from the paper invoice and the product, then follow the Done screen: Items import for the files it lists, Purchase order for every file in `2. Excel files ready to upload`, then tick them and press **Mark as uploaded** so nothing goes in twice.
 
 ## Data and privacy
 

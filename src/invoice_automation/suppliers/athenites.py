@@ -40,8 +40,9 @@ DATE = [r"Date/Time:?\s*(\d{2}/\d{2}/\d{2,4})"]
 # On the last page: 'Total (VAT) Included:\n-5.98\n1,026.26'. The first number is the sum of the
 # line discounts, printed only when there are any; the second is the total to pay.
 TOTAL = [r"Total \(VAT\) Included:?\s*(?:-\d[\d,]*\.\d{2}\s+)?(\d[\d,]*\.\d{2})"]
-# Page 2 onwards repeats the 8-column table without its header (D-004).
-CONTINUATION_COLUMNS = 8
+# Page 2 onwards repeats the table without its header (D-004). It is read as 8 columns, or as 7 when
+# the line number and description share a cell (invoice 1000752311).
+CONTINUATION_COLUMNS = (7, 8)
 CONTINUATION_TAIL = ["quantity", "unit_price", "discount", "amount", "vat"]
 
 
@@ -56,13 +57,17 @@ def parse(result, source, page_index, corrections=None):
 
 def continuation_rows(result) -> list[dict]:
     """Page 2 onwards: the line number, description and barcode may be merged into one or two
-    cells ('51 | LOTUS SAND/BISCOFF CREAM 150GR 5410126006360'), so they are taken apart here."""
+    cells ('51 | LOTUS SAND/BISCOFF CREAM 150GR 5410126006360'), so they are taken apart here.
+    The same table also holds the invoice header and the totals; an item row starts with its line
+    number or has a barcode, which those rows don't."""
     rows = []
     for row in headless_rows(result, CONTINUATION_COLUMNS, CONTINUATION_TAIL):
         lead = row.pop("_lead")
-        m = re.fullmatch(r"(?:\d{1,3}\s+)?(.*?)\s*(\d{8,14})?", lead.text)
-        row["description"] = Cell(m.group(1), lead.confidence, lead.box)
-        row["barcode"] = Cell(m.group(2) or "", lead.confidence, lead.box)
+        m = re.fullmatch(r"(\d{1,3}\s+)?(.*?)\s*(\d{8,14})?", lead.text)
+        if not (m.group(1) or m.group(3)):
+            continue
+        row["description"] = Cell(m.group(2), lead.confidence, lead.box)
+        row["barcode"] = Cell(m.group(3) or "", lead.confidence, lead.box)
         rows.append(row)
     return rows
 

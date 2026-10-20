@@ -22,17 +22,19 @@
 </head>
 <body>
 <h1>Invoice tool: admin guide</h1>
-<p class="sub">For Zein, over AnyDesk. Design and reasons: DECISIONS.md in the code (D-023 for this set-up).</p>
+<p class="sub">For Zein, over AnyDesk. Design and reasons: DECISIONS.md in the code (D-023 and D-024 for this set-up).</p>
 
 <h2>The tool folder</h2>
+<p>Staff see only the staff folder (e.g. <code>D:\Invoices</code>, with a desktop shortcut to it):
+<code>1. Put invoice scans here\</code>, <code>2. Excel files ready to upload\</code> (only these get uploaded),
+<code>Process Invoices</code> and <code>Staff guide</code>. Update refreshes the last two. Everything else is in
+<code>Admin only\</code>:</p>
 <table>
-  <tr><th>Folder / file</th><th>What it is</th><th>Update replaces it?</th></tr>
-  <tr><td><code>Process Invoices.bat</code></td><td>Staff button (the desktop shortcut points here)</td><td>No</td></tr>
+  <tr><th>In Admin only</th><th>What it is</th><th>Update replaces it?</th></tr>
   <tr><td><code>Admin.bat</code></td><td>Your menu (below)</td><td>No</td></tr>
   <tr><td><code>app\</code></td><td>The code, from GitHub</td><td><b>Yes, only this</b> (old copy kept as <code>app.old</code>)</td></tr>
   <tr><td><code>data\</code></td><td>Everything learned, the PowerSoft files, reports, backups, this guide</td><td>Never</td></tr>
-  <tr><td><code>input\</code> <code>processed\</code></td><td>Scans in; scans after reading (by date)</td><td>Never</td></tr>
-  <tr><td><code>output\Ready to upload\</code></td><td>Excel files not yet in PowerSoft (only these get uploaded)</td><td>Never</td></tr>
+  <tr><td><code>processed\</code></td><td>Scans after reading (by date)</td><td>Never</td></tr>
   <tr><td><code>output\Uploaded\&lt;date&gt;\</code></td><td>Files staff marked as uploaded on the Done screen</td><td>Never</td></tr>
   <tr><td><code>logs\error.log</code></td><td>Every error, with full details and time</td><td>Never</td></tr>
   <tr><td><code>.env</code></td><td>The Azure endpoint and key</td><td>Never</td></tr>
@@ -46,6 +48,7 @@
   <tr><td><b>2</b></td><td><b>Update</b> from GitHub. Downloads the newest code, checks it starts with the real data, and goes back by itself if it doesn't. <code>data\</code> is never touched.</td></tr>
   <tr><td><b>3</b></td><td><b>Undo</b> the last update (puts <code>app.old</code> back).</td></tr>
   <tr><td><b>4</b></td><td>Pack check: which single item each pack item counts as. Optional: the report shows this by itself after a new export.</td></tr>
+  <tr><td><b>5</b></td><td>Open what the tool has learned (<code>data\supplier_items.xlsx</code>) in Excel, to <b>delete a wrong answer</b>: find the row (filter on Supplier description, or Key = the barcode), delete the whole row, save, close. That line is asked again next time. Close Excel before anyone processes invoices.</td></tr>
 </table>
 
 <h2>When staff message you</h2>
@@ -54,6 +57,7 @@
   <li><b>"Waiting for Zein":</b> run <code>Admin.bat</code> &rarr; 1 and answer the question, or take the invoice out to enter by hand.</li>
   <li><b>What happened in a run:</b> <code>data\reports\</code>, newest file. It lists each invoice, what staff confirmed, cost changes, new items, what to upload, skipped and by-hand invoices, and notes about the PowerSoft export.</li>
   <li>A fix in the code: Claude pushes it to GitHub, then <code>Admin.bat</code> &rarr; 2.</li>
+  <li><b>"Not for the shop":</b> lines staff left out (home, the restaurant) are in the report under their invoice, with the amount. The Purchase order total is lower than the paper by exactly those.</li>
 </ol>
 
 <h2>PowerSoft item export (about once a month)</h2>
@@ -67,10 +71,16 @@
       <li>Nothing else.</li>
     </ul>
   </li>
-  <li>Export as <b>CSV</b>. Save it as <code>itemsList.csv</code> (PowerSoft's own name) into<br><code>&lt;tool folder&gt;\data\powersoft\</code>, replacing the old one.</li>
+  <li>Export as <b>CSV</b>. Save it as <code>itemsList.csv</code> (PowerSoft's own name) into<br><code>Admin only\data\powersoft\</code>, replacing the old one.</li>
   <li>That's all. The next run keeps a dated copy and uses it. Your next report starts with "New PowerSoft export in use", and lists every pack and the single item it counts as. Check any line marked <b>NEAR NAME</b> or <b>NOT LINKED</b>.</li>
 </ol>
 <div class="box">If the export is missing a column or looks cut off (far fewer items than the last one), the tool keeps using the previous export and the report says why. Export again.</div>
+
+<h2>Monthly check of what was learned</h2>
+<p>A wrong staff answer ("Is it this item? YES" on the wrong flavour) is remembered and used from then on without a question.
+With the new export, also copy <code>Admin only\data\</code> to your PC and ask Claude to run
+<code>scripts\check_learned.py</code> on it. It lists answers worth a look (names with different words, a better-fitting item,
+a cost far from PowerSoft's). Delete the wrong ones at the shop with <code>Admin.bat</code> &rarr; 5.</p>
 
 <h2>Other PowerSoft files</h2>
 <ul>
@@ -97,9 +107,9 @@
 
 <h2>First install / new PC</h2>
 <ol>
-  <li>Make the tool folder on the ThawSpace drive, put <code>setup.ps1</code> in it (from <code>app\deploy\</code> or GitHub) and run it with PowerShell.</li>
-  <li>Copy in <code>.env</code> and <code>data\</code> (or at least <code>data\powersoft\</code>, <code>data\reference\</code> and <code>flag_items.csv</code>).</li>
-  <li>Make the desktop shortcut in Deep Freeze thawed mode, or it disappears at restart.</li>
+  <li>On the ThawSpace drive, make the staff folder with <code>Admin only</code> inside it, and put <code>setup.ps1</code> (from <code>app\deploy\</code> or GitHub), <code>.env</code> and <code>data\</code> in <code>Admin only</code>. The install zip Claude makes is already laid out like this.</li>
+  <li>Run in PowerShell (double-clicking is blocked):<br><code>powershell -ExecutionPolicy Bypass -File "D:\Invoices\Admin only\setup.ps1"</code></li>
+  <li>Make the desktop shortcut to the staff folder in Deep Freeze thawed mode, or it disappears at restart.</li>
 </ol>
 </body>
 </html>

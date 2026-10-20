@@ -28,7 +28,10 @@ Numbered record of design decisions: what was decided, why, and what else was co
 | D-020 | Athenites profile: barcode = purchase unit, VAT-inclusive amounts, pack factor learned per barcode | Accepted |
 | D-021 | Use `prebuilt-layout` only; the supplier profile interprets the table | Accepted (amended 2026-10-15) |
 | D-022 | Review window: staff answer questions from the paper and the shelf; the Excel is only written once an invoice is cleared | Accepted |
-| D-023 | Deployment: uv + launchers on the ThawSpace drive; code and data in separate folders; one-click update with automatic rollback; data safety and automatic checks | Accepted |
+| D-023 | Deployment: uv + launchers on the ThawSpace drive; code and data in separate folders; one-click update with automatic rollback; data safety and automatic checks | Accepted (amended by D-024) |
+| D-024 | Staff see one folder with four things in it; everything else is in "Admin only" | Accepted |
+| D-025 | "Not for the shop": staff can leave a line out of the Excel; nothing is learned from it | Accepted |
+| D-026 | Wrong answers: Zein deletes them in the learned table; a monthly check script lists suspects | Accepted |
 
 ---
 
@@ -123,6 +126,8 @@ My current expectation: start with `prebuilt-invoice` for supplier and totals, u
 - Staff will normally scan one invoice per PDF, so this mostly matters when several invoices are scanned together.
 
 **Amendment (2026-10-16): the unrecognised-page rule is deferred.** The full Athenites scan showed that page 2 repeats the supplier name and invoice number, so it joins page 1 under the first rule. Page 2's table has no header row and merged cells, so it is read by position: the number columns on the right keep their place, and the cells to their left are split into description and barcode. The rule for a page no supplier recognises (join the previous invoice, ask "Is page N part of this invoice?") is not built. *Why:* no sample needs it, and suppliers generally repeat their name or the invoice number on later pages. Agrotis (stationery, less than once a month) is the only candidate, and there staff typing the total from the paper is enough. Until then, an unrecognised page stands alone and is listed as "enter by hand". *Revisit* if the report shows real continuation pages listed that way.
+
+**Amendment (2026-10-20, first run at the shop): page 2 comes in more than one shape.** On Athenites invoice 1000752311, none of page 2's 16 lines were read, so the lines added up to 671.79 against a printed 1,241.45. The scanner had read that page's table as 7 columns (line number and description in one cell) instead of the 8 the profile expected, and put the invoice header and the totals in the same table. *Fix:* a continuation table may have 7 or 8 columns. The number columns on the right are read by position, as before, and everything to their left is taken apart by the profile. A row only counts as an item if it starts with a line number or has a barcode, so the header and totals rows are left out. The invoice now adds up to the cent, and the earlier Athenites invoices read the same as before. *What went right:* the total check (D-010) stopped the wrong Excel from being made. *What went wrong:* it told staff "a page may be missing, scan again", when the page had been scanned but not read. A test now covers this page shape.
 
 ---
 
@@ -744,3 +749,81 @@ The 11 VAT corrections were made by hand and verified in the second 2026-10-14 e
 - *Nothing is uploaded twice.* Until now, finished files stayed in `Ready to upload` until someone deleted them, so yesterday's purchase order could be uploaded again (double stock). The shop had no system for this either: it relied on memory, and on checking PowerSoft's invoice list. Now the Done screen lists every file waiting in `Ready to upload` (this run's and any left from before, marked "from <date>") with a tick box. "Mark as uploaded" moves the ticked files to `output\Uploaded\<date>\`, so `Ready to upload` only ever holds what hasn't gone in yet. Staff are told to upload straight away; if they close first, the files are shown again on the next Done screen, and closing with files waiting asks to confirm. Each file's upload steps are kept in `data\state\to_upload.json`. *Alternatives:* moving files automatically when the window closes (rejected: closing doesn't mean uploaded), or staff moving files by hand (rejected: it's the step that gets forgotten).
 - *Guides.* `Staff guide.html` sits beside the launcher; `Admin guide.html` (updates, undo, logs, reports, backups, the export's columns) sits in `data\`, out of the way but not locked. Both live in `deploy\guides\` and every update refreshes them.
 - *Everything from PowerSoft can be refreshed:* the item export as above, and `suppliers.xlsx` and `categories.xlsx` by replacing them, with the same names. They are read fresh at every start.
+
+---
+
+## D-024: Staff see one folder with four things in it; everything else is in "Admin only"
+
+**Status:** Accepted · 2026-10-20
+
+**Context.** At the first install (D-023), the tool folder showed staff everything: `app`, `tools`, `data`, `logs`, `processed`, `.env`, `Admin.bat`, `output\Uploaded`... Zein: "I do not want my staff to have to look at that clutter." One member of staff isn't strong in English, so folder names should say what to do. The setup also made a desktop shortcut to Process Invoices, which is little use on its own: staff also need the scan and upload folders. The shop already keeps permanent folders on the ThawSpace drive (D:) with a desktop shortcut to them, made in thawed mode.
+
+**Decision.**
+```
+D:\Invoices\                          (Zein makes a desktop shortcut to this folder)
+   1. Put invoice scans here\
+   2. Excel files ready to upload\
+   Process Invoices.bat
+   Staff guide.html
+   Admin only\                        app, tools, data, logs, processed, output\Uploaded, .env, Admin.bat
+```
+- `Admin only` is the D-023 tool folder unchanged: the code runs from it and every path inside the code is still relative to it. Only the two staff folders live outside. `env.bat` points the tool at them through two environment variables (`INVOICE_INPUT`, `INVOICE_READY`); without them (on Zein's PC, in the tests) the old `input\` and `output\Ready to upload\` are used.
+- `output\Uploaded\` stays in `Admin only`: staff never need to see files they must not upload.
+- Numbered names sort the two folders first and in the order they are used. They are set in `env.bat` and `setup.ps1` (both say so), so they must not be renamed by hand.
+- `setup.ps1` sits in `Admin only` and builds the staff folder around it. It refuses to run unless its folder is called `Admin only` and sits inside a folder of its own, because Process Invoices finds the tool by that name. It no longer makes a desktop shortcut. Every update refreshes Process Invoices and the Staff guide in the staff folder.
+- The shop PC got a fresh install rather than a migration. Nothing had been learned yet (learning happens only when an invoice finishes), and the half-done first invoice held made-up answers. Moving `tools\` would also have broken the Python environment, which stores absolute paths.
+
+**Alternatives considered.**
+- *Hide the clutter with Windows' hidden attribute.* Rejected: staff with "show hidden files" switched on still see it, and Zein would have to unhide it to reach `Admin.bat`.
+- *Move every path in the code into `Admin only\...`.* Rejected: two folders change place, so moving only those two (by setting) changes the least code and keeps Zein's PC and the tests as they are.
+- *A desktop shortcut per folder.* Rejected: three shortcuts to make again after every frozen restart. One folder shortcut is how the shop already works.
+
+**Reasoning.** Staff see only what they use: where scans go, what to upload, the button and the guide. The tool's own layout and update logic (D-023) didn't need to change, only where two folders sit.
+
+---
+
+## D-025: "Not for the shop": staff can leave a line out of the Excel; nothing is learned from it
+
+**Status:** Accepted · 2026-10-20
+
+**Context.** At a hypermarket supplier (Athenites, mostly), the other owner sometimes puts a few things for home or for his restaurant on the shop's invoice. At the first run with staff, two restaurant cleaning items had no way out: the tool insisted on an item for every line, so staff had to pick a random one to get through. That would have put wrong stock and costs into PowerSoft, and taught the tool a wrong answer for good. "I'm not sure" (send to Zein) is meant for real doubt, not for this.
+
+**Decision.**
+- A **Not for the shop** button sits beside "I'm not sure" on every question about one line, except typing the line's numbers from the paper (those have to be right for the total check). It asks once to confirm, then that line is left out of the Excel.
+- Stored like an item answer, by product: a second line of the same product (Athenites prints one when an item is scanned twice) is left out with it. "< Previous question" undoes it.
+- A skipped line is **not learned** (no barcode, pack size or cost is remembered) but **still counts in the total check**, because the paper total includes it.
+- Zein's report lists every skipped line with its amount, under its invoice. The Purchase order total is then lower than the paper by exactly that.
+- **Items we also sell** (washing-up liquid, Coca-Cola) match without a question, so there is no button to press. For those, the other owner tells staff and staff lower the quantity in the Excel (or delete the row) before uploading. The mistake possible there is a small one in a quantity, not a made-up item.
+
+**Alternatives considered.**
+- *A last screen on Athenites invoices, "Is everything on this invoice for the shop?", with a tick list of every line* (proposed by Claude, to catch items we also sell). Rejected by Zein: an extra step on every invoice works against the goal of scan, press, upload, done, and the case is rare and small.
+- *Use "I'm not sure" for these.* Rejected: it sends the whole invoice to Zein for something staff can settle themselves.
+- *Remember skipped products, so they are skipped automatically next time.* Rejected: the same product can be for home one week and for the shop the next.
+
+**Reasoning.** It gives staff an honest answer for a real situation, so they never invent one. Not learning from it keeps a one-off from turning into a rule, and keeping it in the total check means a skipped line can't hide a misread.
+
+---
+
+## D-026: Wrong answers: Zein deletes them in the learned table; a monthly check script lists suspects
+
+**Status:** Accepted · 2026-10-20
+
+**Context.** Staff answers are remembered for good (D-018). At the first run, the invoice had Nature Valley Chocolate and Honey 5-packs (each confirmed as our single bars) and a Berry 5-pack, which we don't stock. The window suggested Honey and Chocolate for the Berry, the nearest names. Staff rightly didn't pick them, but if they had, every later Berry line would have gone in as Honey, with no question. The cost check (D-009) wouldn't catch it either, because the bars cost the same. Zein's question: how is a wrong answer removed?
+
+**Decision.**
+1. **Removing an answer.** `Admin.bat` option 5 opens the learned table (`data\supplier_items.xlsx`) in Excel. Zein finds the row (filter on the supplier's wording, or on the barcode), deletes it and saves. That line is matched from scratch and asked again next time. The file was built for this (text columns keep barcodes intact, filters and a frozen header), and the daily backup (D-023) covers a mistake.
+2. **The monthly check.** With the monthly export, Zein copies `Admin only\data\` to his PC, and `scripts/check_learned.py` lists answers worth a second look:
+   - the item is no longer in the export;
+   - another item's name fits the supplier's wording clearly better;
+   - the names barely match;
+   - **a word on each side that the other lacks** ("BER" vs "HON"), the same idea as the red words in the window;
+   - a cost per piece far from PowerSoft's (wrong item, or wrong pieces per unit).
+
+   Rows seeded from the old supplier lists are left out by default (they predate the tool and are mostly abbreviations). On a planted Berry → Honey answer, it lists exactly that row and not the two right ones.
+
+**Alternatives considered.**
+- *A "forget an answer" screen in the tool.* More code, and a screen that could let staff undo good answers. Rejected for now: Excel already does this, and it is Zein's job.
+- *Asking again whenever a learned answer is old.* Rejected: it brings back the questions learning is meant to remove.
+- *Only the monthly check, no Admin option.* Rejected: a wrong answer Zein hears about from staff should be fixable the same day.
+
+**Reasoning.** Learning is what makes the tool quicker every week, so a wrong answer has to be cheap to find and remove, not prevented by asking more. Most invoices will now be done by one experienced member of staff, which already lowers the risk. The check script finds the mistakes no automatic check sees (same price, similar name), and deleting the row returns the product to "ask".

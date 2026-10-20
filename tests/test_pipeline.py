@@ -1,7 +1,8 @@
 """Review-engine rules on made-up lines (D-022)."""
 
 from invoice_automation.model import UNREADABLE, ZEIN, InvoiceLine
-from invoice_automation.pipeline import _answer_keys
+from invoice_automation import pipeline
+from invoice_automation.pipeline import Entry, Evaluation, _answer_keys, skip_id
 from invoice_automation.suppliers import athenites
 
 
@@ -39,3 +40,16 @@ def test_negative_quantity_is_a_misread():
 def test_negative_quantity_typed_from_the_paper_goes_to_zein():
     line = athenites.parse(_row_cells("-9.00"), "x.pdf", 1, {"0": {"quantity": "-9.00"}}).lines[0]
     assert any(f.kind == ZEIN for f in line.flags)
+
+
+def test_not_for_the_shop_leaves_out_every_line_of_that_product():
+    # D-025: no question, no Excel row, nothing learned; the other line of the same product goes too.
+    lines = [_line(0, 0, "5410126006377"), _line(0, 1, "8710522961032"), _line(1, 3, "5410126006377")]
+    ev = Evaluation(Entry("x.pdf", [0, 1], ""), answer_keys=_answer_keys(lines))
+    ev.entry.answers[skip_id(ev, lines[2])] = True
+    assert [_check(line, ev) for line in (lines[0], lines[2])] == [None, None]
+    assert ev.skipped == [lines[0], lines[2]] and ev.lines == []
+
+
+def _check(line, ev):
+    return pipeline._line(line, None, ev, None)  # a skipped line needs neither the invoice nor the catalogue

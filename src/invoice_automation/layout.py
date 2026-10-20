@@ -157,19 +157,21 @@ def find_table(result: dict, columns: dict[str, str], required: str) -> list[dic
     return []
 
 
-def headless_rows(result: dict, column_count: int, tail: list[str]) -> list[dict[str, Cell]]:
+def headless_rows(result: dict, column_counts: tuple[int, ...], tail: list[str]) -> list[dict[str, Cell]]:
     """Rows of a line table that has no header row, read by position (D-004 amendment 2).
 
     Continuation pages (Athenites page 2) repeat the table without its column names, and the
     scanner may merge neighbouring cells (description + barcode). The numbers on the right keep
     their columns, so the last len(`tail`) cells are named by `tail`; every cell to their left is
-    joined into "_lead" for the profile to take apart. Only tables with `column_count` columns
-    are read. Rows that aren't item rows are left for the profile's row_to_line to reject.
+    joined into "_lead" for the profile to take apart. Only tables with one of `column_counts` columns
+    are read (the scanner splits the left part differently from page to page). Rows that aren't item
+    rows are left for the profile to reject.
     """
     words = _word_spans(result)
     rows = []
     for table in result.get("tables", []):
-        if table["columnCount"] != column_count:
+        column_count = table["columnCount"]
+        if column_count not in column_counts:
             continue
         grid = _grid(table)
         lead_columns = range(column_count - len(tail))

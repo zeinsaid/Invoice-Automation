@@ -14,6 +14,7 @@ same question on the next.
 import csv
 import hashlib
 import json
+import os
 import shutil
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
@@ -36,7 +37,9 @@ NEW_ITEMS = STATE_DIR / "new_items.csv"  # codes issued by the tool = local addi
 PROCESSED = STATE_DIR / "processed_invoices.csv"  # duplicate-scan guard (D-018)
 PRICE_CHANGES = STATE_DIR / "price_changes.csv"  # D-009
 FLAG_ITEMS = Path("data/flag_items.csv")  # items that always need a look, e.g. single/pack pairs (D-005)
-READY_DIR = Path("output/Ready to upload")  # only files not yet uploaded to PowerSoft
+# Only files not yet uploaded to PowerSoft. On the shop PC, env.bat points this at "2. Excel files ready
+# to upload", the folder staff see; everything else stays in 'Admin only' (D-024).
+READY_DIR = Path(os.environ.get("INVOICE_READY", "output/Ready to upload"))
 UPLOADED_DIR = Path("output/Uploaded")  # files staff marked as uploaded, by date
 TO_UPLOAD = STATE_DIR / "to_upload.json"  # file -> its upload steps, until it is marked as uploaded
 SCANS_DIR = Path("processed")  # scans are moved here from input/ (D-002)
@@ -158,6 +161,7 @@ class Evaluation:
     note: str = ""
     labels: dict[str, str] = field(default_factory=dict)  # the supplier's printed column names (fix_line)
     answer_keys: dict[str, str] = field(default_factory=dict)  # line key -> key its item/pack answers live under
+    skipped: list[InvoiceLine] = field(default_factory=list)  # not for the shop (D-025)
 
 
 @dataclass
@@ -249,6 +253,12 @@ def _answer_keys(lines: list[InvoiceLine]) -> dict[str, str]:
     return keys
 
 
+def skip_id(ev: Evaluation, line: InvoiceLine) -> str:
+    """Where "Not for the shop" is stored (D-025). By product, like item answers: a second line of the
+    same product is left out with it."""
+    return f"skip:{ev.answer_keys.get(line.key, line.key)}"
+
+
 def _zein(ev: Evaluation, note: str) -> Evaluation:
     ev.outcome = "zein"
     ev.note = note
@@ -260,6 +270,9 @@ def _line(line: InvoiceLine, inv: Invoice, ev: Evaluation, ctx: Context) -> Ques
     """Work out one line, applying answers. Returns the next question about it, if any."""
     a = ev.entry.answers
     row = ev.answer_keys.get(line.key, line.key)  # item and pack answers; fix answers stay per line
+    if a.get(skip_id(ev, line)):
+        ev.skipped.append(line)  # D-025: not in the Excel and not learned, but still in the total
+        return None
     for flag in line.flags:
         if flag.kind == ZEIN:
             _zein(ev, f"Line {line.line_no}: {flag.message}")
@@ -338,6 +351,7 @@ class Result:
     output_file: Path
     price_changes: list[tuple[str, str, float, float]] = field(default_factory=list)
     confirmed: list[str] = field(default_factory=list)  # what staff answered, for Zein's report
+    skipped: list[str] = field(default_factory=list)  # lines left out as not for the shop (D-025)
 
     @property
     def new_items(self) -> int:
@@ -411,7 +425,9 @@ def finalize(ev: Evaluation, ctx: Context) -> Result:
     _record_price_changes(inv, changes)
     ev.entry.status = DONE
     ev.entry.output = output_file.name
-    result = Result(inv, rows, output_file, changes, confirmed)
+    skipped = [f"Line {line.line_no} '{line.description}', {line.amount_excl_vat * (1 + line.vat_rate / 100):.2f} "
+               "incl. VAT" for line in ev.skipped]
+    result = Result(inv, rows, output_file, changes, confirmed, skipped)
     waiting = _load_to_upload()
     waiting[output_file.name] = {"items_import": result.items_import, "made": str(date.today())}
     _save_to_upload(waiting)

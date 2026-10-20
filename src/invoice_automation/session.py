@@ -11,9 +11,10 @@ from datetime import date, datetime
 from pathlib import Path
 
 from .files import save_atomic
+from .model import InvoiceLine
 from .suppliers import PROFILES, example
 from .pipeline import (DONE, MANUAL, NEW, PENDING, RESCAN, SKIPPED, STATE_DIR, ZEIN_LIST, Context, Entry, Evaluation,
-                       Question, Result, enqueue, evaluate, finalize, load_queue, save_queue, split)
+                       Question, Result, enqueue, evaluate, finalize, load_queue, save_queue, skip_id, split)
 
 REPORTS_DIR = Path("data/reports")
 LAST_EXPORT = STATE_DIR / "last_export.txt"  # the export the last report described (D-023)
@@ -79,6 +80,10 @@ class Session:
         note = f"Staff were not sure: {question.title}" + (f" ({question.detail})" if question.detail else "")
         self._event(entry, ZEIN_LIST, note)
 
+    def not_for_shop(self, entry: Entry, ev: Evaluation, line: InvoiceLine) -> None:
+        """D-025: bought on the shop's invoice for home or the restaurant: left out of the Excel."""
+        self.answer(entry, Question(skip_id(ev, line), "skip", "Not for the shop"), True)
+
     def drop(self, entry: Entry) -> None:
         """Zein only: take an invoice out of the tool; it is entered by hand."""
         self._event(entry, MANUAL, "Taken out by Zein: enter this one by hand.")
@@ -137,6 +142,7 @@ class Session:
             out.append(f"   upload: Items import first ({r.items_import}), then Purchase order" if r.items_import
                        else "   upload: Purchase order only")
             out += [f"   {c}" if c.startswith("pack: ") else f"   staff: {c}" for c in r.confirmed]
+            out += [f"   not for the shop: {s}" for s in r.skipped]
             out += [f"   price: {code} {name}: {old:.2f} -> {new:.3f} ({(new - old) / old * 100:+.0f}%)"
                     for code, name, old, new in r.price_changes]
         for status, label in ((ZEIN_LIST, "ZEIN"), (RESCAN, "RESCAN"), (MANUAL, "BY HAND"), (SKIPPED, "SKIPPED")):
