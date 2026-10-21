@@ -46,9 +46,6 @@ SCANS_DIR = Path("processed")  # scans are moved here from input/ (D-002)
 
 TOTAL_TOLERANCE = 0.05  # euros
 PRICE_CHANGE_MIN = 0.01  # euros per piece; smaller differences are rounding (PowerSoft keeps 2 decimals)
-# D-008: it isn't known yet whether PowerSoft's Purchase order upload updates an item's stored cost. Until
-# Zein has checked, a file with cost changes also goes through Items import (with Modify ticked).
-COSTS_NEED_ITEMS_IMPORT = True
 PROMOTE_WITHIN = 0.15  # a provisional match becomes trusted if its cost is within 15% of the known cost (D-018)
 
 # Queue statuses. NEW = a whole PDF not yet split into invoices.
@@ -359,14 +356,9 @@ class Result:
 
     @property
     def items_import(self) -> str:
-        """Why this file must also go through PowerSoft's Items import (before the Purchase order), or ""."""
-        reasons = []
-        if self.new_items:
-            reasons.append(f"{self.new_items} new item{'s' if self.new_items > 1 else ''}")
-        if COSTS_NEED_ITEMS_IMPORT and self.price_changes:
-            n = len(self.price_changes)
-            reasons.append(f"{n} cost change{'s' if n > 1 else ''}")
-        return ", ".join(reasons)
+        """Why this file must also go through PowerSoft's Items import (before the Purchase order), or "".
+        Only new items: the Purchase order upload itself updates an item's cost (D-008 amendment)."""
+        return f"{self.new_items} new item{'s' if self.new_items > 1 else ''}" if self.new_items else ""
 
 
 def finalize(ev: Evaluation, ctx: Context) -> Result:

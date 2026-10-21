@@ -609,9 +609,8 @@ class App:
         self.button(row, "Close", self.close_done)
 
     def upload_steps(self, parent, waiting):
-        """What staff do next in PowerSoft, so nobody has to open each Excel to decide. New items (and,
-        until Zein has checked D-008, cost changes) need Items import first; then every file is
-        uploaded as a Purchase order. Then staff tick what they uploaded, and those files move to
+        """What staff do next in PowerSoft, so nobody has to open each Excel to decide. New items need Items
+        import first; then every file is uploaded as a Purchase order, which also updates costs (D-008). Then staff tick what they uploaded, and those files move to
         'Uploaded', so nothing can go in twice."""
         bg = "#eef5ee"
         box = tk.Frame(parent, bg=bg, padx=16, pady=10)
@@ -632,7 +631,7 @@ class App:
         what = "ALL the files" if len(waiting) > 1 else "the file"
         self.label(box, f"{step}.  Purchase order: {what} below.", 14, True, pady=(6, 0)).configure(bg=bg)
         if first:
-            self.label(box, "Do step 1 first: the purchase order needs the new items and costs to be in PowerSoft.",
+            self.label(box, "Do step 1 first: the purchase order needs the new items to be in PowerSoft.",
                        12, color=GREY, pady=(2, 0)).configure(bg=bg)
         self.label(box, f"{step + 1}.  When it is in PowerSoft, tick it and press 'Mark as uploaded':", 14, True,
                    pady=(10, 2)).configure(bg=bg)
