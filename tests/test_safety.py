@@ -109,3 +109,47 @@ def test_marked_files_leave_ready_to_upload_and_the_rest_stay(tmp_path, monkeypa
     pipeline.mark_uploaded(["A 1.xlsx"])
     assert [w["file"] for w in pipeline.waiting_uploads()] == ["B 2.xlsx"]
     assert len(list((tmp_path / "output/Uploaded").rglob("A 1.xlsx"))) == 1
+
+
+def test_mark_uploaded_with_the_file_open_leaves_no_copy(tmp_path, monkeypatch):
+    # Excel locks an open file: before, the move copied it to Uploaded and then failed to delete it.
+    from pathlib import Path
+
+    from invoice_automation import pipeline
+    monkeypatch.chdir(tmp_path)
+    ready = tmp_path / "output/Ready to upload"
+    ready.mkdir(parents=True)
+    (ready / "A 1.xlsx").write_text("x")
+
+    def locked(self, target):
+        raise PermissionError("in use")
+    monkeypatch.setattr(Path, "rename", locked)
+    with pytest.raises(PermissionError, match="open in Excel"):
+        pipeline.mark_uploaded(["A 1.xlsx"])
+    assert (ready / "A 1.xlsx").exists() and not list((tmp_path / "output/Uploaded").rglob("*.xlsx"))
+
+
+def test_old_supplier_barcodes_are_taken_in_unconfirmed(tmp_path, monkeypatch):
+    # D-028: a supplier's own barcode becomes an unconfirmed answer, unless PowerSoft already has it.
+    from invoice_automation import supplier_items as si
+    legacy = tmp_path / "legacy.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.append(["file", "code", "description", "barcode", "cost", "supplier code"])
+    for row in (["Coca-Cola", 21, "FANTA LEMON CAN 330ML", "5449000317667", 0.6, 1],   # Coca-Cola's own: taken in
+                ["Coca-Cola", 33, "SPRITE 1.5 LTR", "5449000004826", 1.6, 1],          # PowerSoft has it: skipped
+                ["Coca-Cola", 99, "GONE ITEM", "5449000000439", 1.0, 1],               # not in PowerSoft: skipped
+                ["Coca-Cola", 21, "FANTA LEMON", "5449000317668", 0.6, 1]):            # bad check digit: skipped
+        wb.active.append(row)
+    wb.save(legacy)
+    monkeypatch.setattr(si, "LEGACY_PATH", legacy)
+    table = si.SupplierItems([], tmp_path / "t.xlsx")
+    names = {"21": "FANTA LEMON CAN 330ML", "33": "SPRITE 1.5 LTR"}
+    assert si.add_legacy_barcodes(table, names, {"5449000004826"}) == 1
+    [row] = table.rows
+    assert (row.key, row.item_code, row.status) == ("5449000317667", "21", si.PROVISIONAL)
+
+
+def test_names_related():
+    from invoice_automation.supplier_items import names_related
+    assert names_related("FITNESS CHOCO/BARS 6X23,5G", "Fitness Bar Chocolate 23.5Gr")
+    assert not names_related("NUTELLA JAR 750GR", "GEEKBAR KIT OFFER")  # a shifted row in the old lists

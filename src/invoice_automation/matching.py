@@ -19,7 +19,7 @@ from rapidfuzz import fuzz, process
 from .catalogue import Catalogue, name_key
 from .layout import ean_is_valid
 from .model import MATCH, PACK, RED, YELLOW, Flag, InvoiceLine
-from .supplier_items import TRUSTED, SupplierItems
+from .supplier_items import LEGACY_BARCODE, TRUSTED, SupplierItems
 
 FUZZY_THRESHOLD = 90  # strict, for Athenites (D-015); 0-100 similarity
 COMMON_PACK_SIZES = (3, 4, 6, 9, 12, 24)  # D-020; grows as Zein confirms others
@@ -84,9 +84,13 @@ def _match(line: InvoiceLine, supplier: str, invoice_no: str, catalogue: Catalog
     if not (learned and learned.item_code in catalogue.items) and line.supplier_code:
         learned = table.get(supplier, "code", line.supplier_code)
     if learned and learned.item_code in catalogue.items and learned.item_code not in exclude:
-        m = Match(learned.item_code, learned.pack_factor, "learned", candidates=_top(learned.item_code, catalogue))
+        # The invoice counting single pieces overrides a learned pack size (4 Blends were learned as 10 by mistake).
+        m = Match(learned.item_code, 1 if line.pieces_known else learned.pack_factor, "learned",
+                  candidates=_top(learned.item_code, catalogue))
         if learned.status != TRUSTED:
-            m.flags.append(Flag(YELLOW, "item", "Matched on an earlier invoice, not yet confirmed.", MATCH))
+            m.flags.append(Flag(YELLOW, "item", "Found by its barcode in the old supplier list, not yet confirmed."
+                                if learned.source == LEGACY_BARCODE else
+                                "Matched on an earlier invoice, not yet confirmed.", MATCH))
         if m.pack_factor is None:
             suggest_pack(m, line, supplier, invoice_no, catalogue, table)
         else:

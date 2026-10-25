@@ -196,3 +196,18 @@ def test_brand_suggested_from_the_start_of_the_name():
     assert suggested_brand("7UP ZERO CAN 330ML", cat) == "7UP ZERO"  # the longest brand wins
     assert suggested_brand("COCA COLA CANS 330ML", cat) == "COCA-COLA"  # punctuation doesn't matter
     assert suggested_brand("Toblerone Milk 100G", cat) == "TOBLERONE"  # a new brand: the first word
+
+
+def test_learned_pack_size_never_multiplies_an_invoice_that_counts_pieces():
+    # Cassandra counts packs already (cartons x FACT): 4 Blends were learned as 10 per unit by mistake
+    # and went in as 100 packs instead of 10 (2026-10-23). The invoice's own count wins.
+    from invoice_automation.catalogue import Catalogue, Item
+    from invoice_automation.matching import match_line
+    from invoice_automation.model import InvoiceLine
+    from invoice_automation.supplier_items import TRUSTED, SupplierItem, SupplierItems
+    cat = Catalogue({"1638": Item("1638", "BLENDS GREEN CLASSICS", "", 19, 2.00, 3.0, "Cassandra", "", "", True)}, {}, {})
+    table = SupplierItems([SupplierItem("Cassandra", "barcode", "5290415441078", "BLENDS GREEN", "1638", 10.0, TRUSTED,
+                                        "new_item", 0.2, "1", None, "2026-10-23")])
+    line = InvoiceLine("1", "BLENDS GREEN CLASSICS", "5290415441078", 10, 20.0, 19, 2.0, pieces_known=True)
+    m = match_line(line, "Cassandra", "2", cat, table)
+    assert (m.item_code, m.pack_factor) == ("1638", 1)

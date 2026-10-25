@@ -1,4 +1,5 @@
-"""Renos Agrotis profile (stationery). Invoices are often two pages; the total is on the last one.
+"""Renos Agrotis profile (stationery): the warehouse invoice. Often two or three pages; the total is on
+the last one. Their shop-counter invoice is a different layout: agrotis_pos.py.
 
 Columns: # | Code | BarCode | Description | Qty | UOM | Price | Dis. | Value | Tax | Total
 - UOM is the pack size ('x12'); some of our items are the pack itself, so the price decides
@@ -33,11 +34,11 @@ EDITABLE = {"qty": "Qty", "uom": "UOM (pack size)", "price": "Price", "disc": "D
             "total": "Total"}
 NUMBER = [r"/Page\s+(\d{5,})\s"]
 DATE = [r"/Page\s+\d{5,}\s+(\d{2}\.\d{2}\.\d{4})"]
-TOTAL = []  # on the last page; its layout isn't known yet, so staff type it (D-022)
+TOTAL = [r"Total\s*:\s*EUR\s*(\d[\d,]*\.\d{2})"]  # last page: 'Σύνολο / Total :\nEUR 1,234.50'
 
 
 def matches(page_text: str) -> bool:
-    return "AGROTIS" in page_text.upper()
+    return "AGROTIS" in page_text.upper()  # agrotis_pos is tried first and takes its own pages
 
 
 def parse(result, source, page_index, corrections=None):

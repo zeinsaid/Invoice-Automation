@@ -111,7 +111,9 @@ class App:
     def not_for_shop(self):
         entry, ev, question = self.current
         line = question.line
-        if messagebox.askyesno("Not for the shop", f"Leave out line {line.line_no}: {line.description}?\n\n"
+        amount = line.amount_excl_vat * (1 + line.vat_rate / 100)  # the sum shows a mistake (shop stock left out by mistake)
+        if messagebox.askyesno("Not for the shop", f"Leave out line {line.line_no}: {line.description}, "
+                                                   f"€{amount:.2f}?\n\n"
                                                    "Only for things bought for home or the restaurant. "
                                                    "It will not go into PowerSoft."):
             self.session.not_for_shop(entry, ev, line)
@@ -424,7 +426,16 @@ class App:
                      bg="white").pack(side="left")
             tk.Button(hint, text="Use invoice barcode", command=use_invoice_barcode, font=(FONT, 10), relief="solid",
                       bd=1, bg="white", cursor="hand2").pack(side="left", padx=(8, 0))
-        fields["pieces"] = add(2, "How many do you sell from\n1 unit on the invoice?", self.entry_box(form, "1", width=6))
+        pieces_cell = tk.Frame(form, bg="white")
+        fields["pieces"] = self.entry_box(pieces_cell, "1", width=6)
+        fields["pieces"].pack(side="left")
+        if line.pieces_known:
+            # Cassandra, Cosmos, Fereos, Vassos count single packs already (10 cartons x 10 = 100 packs). Asking
+            # again multiplied them twice: 4 items went in as 100 packs instead of 10, at a tenth of the cost (2026-10-23).
+            fields["pieces"].config(state="disabled")
+            tk.Label(pieces_cell, text="The invoice already counts single pieces.", font=(FONT, 11), fg=GREY,
+                     bg="white").pack(side="left", padx=(8, 0))
+        add(2, "How many do you sell from\n1 unit on the invoice?", pieces_cell)
         fields["price"] = add(3, "Selling price € (with VAT)", self.entry_box(form, "", width=8))
         category = ttk.Combobox(form, values=categories, state="readonly", font=(FONT, 13), width=30)
         suggestion = suggested_category(q.data.get("candidates"), ctx.catalogue)

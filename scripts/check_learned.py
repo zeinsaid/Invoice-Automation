@@ -11,7 +11,7 @@ of the shop PC's 'Admin only\\data' folder, and this lists the learned rows wort
 
 A row on this list isn't necessarily wrong (supplier names are abbreviated: 'N/VALLEY MUES/BAR'); Zein
 decides. A wrong row is deleted in Excel (Admin.bat, option 5), so that line is asked again next time.
-Rows seeded from the old supplier lists ('legacy') are skipped unless --all is given.
+Rows from the old supplier lists (names, and unconfirmed barcodes, D-028) are skipped unless --all is given.
 
 Usage:  uv run python scripts/check_learned.py "<copy of Admin only\\data>" [--all]
 """
@@ -24,7 +24,7 @@ from rapidfuzz import fuzz
 
 from invoice_automation import pipeline
 from invoice_automation.catalogue import Catalogue, name_key
-from invoice_automation.supplier_items import SupplierItems
+from invoice_automation.supplier_items import LEGACY_BARCODE, SupplierItems
 
 LOW_SIMILARITY = 55  # 0-100: below this, the wording and the item's name barely overlap
 BETTER_BY = 15  # another item's name scores this much higher than the chosen one
@@ -46,7 +46,7 @@ def main() -> None:
 
     found = []
     for r in table.rows:
-        if r.source == "legacy" and not args.all:
+        if r.source in ("legacy", LEGACY_BARCODE) and not args.all:  # from the old lists, not staff
             continue
         where = f"{r.supplier} | {r.key_type} {r.key} | '{r.supplier_description}'"
         item = catalogue.items.get(r.item_code)

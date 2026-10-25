@@ -32,6 +32,9 @@ Numbered record of design decisions: what was decided, why, and what else was co
 | D-024 | Staff see one folder with four things in it; everything else is in "Admin only" | Accepted |
 | D-025 | "Not for the shop": staff can leave a line out of the Excel; nothing is learned from it | Accepted |
 | D-026 | Wrong answers: Zein deletes them in the learned table; a monthly check script lists suspects | Accepted |
+| D-027 | Handwriting on the paper is ignored when reading lines | Accepted |
+| D-028 | The old supplier lists' own barcodes become unconfirmed answers, once | Accepted |
+| D-029 | Two new layouts: Coca-Cola, and Agrotis' shop-counter invoice | Accepted |
 
 ---
 
@@ -182,6 +185,8 @@ A line that matches a linked pack goes in as the single item, N pieces per invoi
 - A loose fuzzy match without the margin and number rules: rejected. A wrong link silently books the wrong item, which is worse than a question.
 
 *Why.* PowerSoft already holds the link in the name, so reading it there means nothing to maintain. Strict rules plus the price check mean a wrong link is very unlikely to go unnoticed, and the `--packs` list lets Zein see every link at a glance.
+
+**Amendment (2026-10-25): an invoice that counts pieces is never multiplied again.** Cassandra, Cosmos, Fereos and Vassos print quantities that already count single packs (Cassandra: cartons × FACT). For a new item, the form still asked "How many do you sell from 1 unit?", and on 23 October staff answered 10 for four Blends cigarettes (a carton holds 10). The tool multiplied again: PowerSoft received 100 packs of each, at a tenth of the real cost, instead of 10. The money total was right, which is why the total check couldn't catch it. That 10 was also learned, so the next Blends invoice would have repeated it. *Fix, in three places:* the form shows 1, greyed out, with "The invoice already counts single pieces"; the pipeline ignores the form's number for such a line; and matching never applies a learned pack size to it (the next invoice also corrects the stored 10). Zein corrects the four items' stock and cost in PowerSoft by hand. *Why three places:* the form alone would leave the learned 10 in force, and matching alone would leave the form asking a question with no right answer.
 
 ---
 
@@ -662,6 +667,13 @@ The 11 VAT corrections were made by hand and verified in the second 2026-10-14 e
 
 *Why:* on Cassandra, confidence put about 40 yellow flags on cells that were all correct (product names, `0`s in the SUB column). A passing check means all three numbers were read correctly: for it to pass with wrong numbers, the misreads would have to cancel out exactly, which is practically impossible. So the check is a far stronger signal than any single cell's score.
 
+**Amendment (2026-10-25): what the first week at the shop showed.** Staff ran about a dozen real invoices (21–24 October). Fixes to how pages are read:
+- *Pambos: a VAT rate read one column to the left.* On some rows the scanner put the "19" into the Discount column, leaving VAT empty. An unreadable VAT rate goes to Zein, so the invoice sat in "Waiting for Zein". When VAT is empty and the line adds up with no discount, the number in Discount is taken as the VAT. The arithmetic proves it, so a real discount is never mistaken for VAT.
+- *Athenites: a total of 0.00.* With no discounts, the discount line is printed as "0.00", where the pattern expected a minus sign, so 0.00 was read as the total and staff had to type it. The pattern now takes an optional sign.
+- *Agrotis: its total is now read* ("Σύνολο / Total : EUR" and the amount); until now staff typed it every time.
+- *Cassandra: a scan that cuts off the logo.* Such a page wasn't recognised and was listed as "enter by hand". Cassandra's VAT number, printed under the logo, now identifies it too.
+- *Each was checked on all 30 sample scans:* only these invoices changed, and each now adds up to its printed total.
+
 ---
 
 ## D-022: Review window: staff answer questions from the paper and the shelf; the Excel is only written once an invoice is cleared
@@ -752,6 +764,10 @@ The 11 VAT corrections were made by hand and verified in the second 2026-10-14 e
 - *Guides.* `Staff guide.html` sits beside the launcher; `Admin guide.html` (updates, undo, logs, reports, backups, the export's columns) sits in `data\`, out of the way but not locked. Both live in `deploy\guides\` and every update refreshes them.
 - *Everything from PowerSoft can be refreshed:* the item export as above, and `suppliers.xlsx` and `categories.xlsx` by replacing them, with the same names. They are read fresh at every start.
 
+**Amendment (2026-10-25): two small fixes after the first week.**
+- *"Mark as uploaded" with the file open in Excel left a copy behind.* Python's move copied the file to `Uploaded`, then failed to delete the original (Excel locks it), and staff were told to close Excel and press again. Twice on 21 October that left two identical copies in `Uploaded` (nothing was uploaded twice). A plain rename is used instead: it either happens or fails cleanly. Both folders are on the same drive (D-024), so a rename is always possible.
+- *The update downloaded the demo video.* GitHub's zip of the repository included `docs\` (the demo video and GIF), `tests\` and `scripts\`. `.gitattributes` now marks them `export-ignore`, so they stay on GitHub for visitors but are left out of the zip the shop PC downloads.
+
 ---
 
 ## D-024: Staff see one folder with four things in it; everything else is in "Admin only"
@@ -829,3 +845,75 @@ D:\Invoices\                          (Zein makes a desktop shortcut to this fol
 - *Only the monthly check, no Admin option.* Rejected: a wrong answer Zein hears about from staff should be fixable the same day.
 
 **Reasoning.** Learning is what makes the tool quicker every week, so a wrong answer has to be cheap to find and remove, not prevented by asking more. Most invoices will now be done by one experienced member of staff, which already lowers the risk. The check script finds the mistakes no automatic check sees (same price, similar name), and deleting the row returns the product to "ask".
+
+---
+
+## D-027: Handwriting on the paper is ignored when reading lines
+
+**Status:** Accepted · 2026-10-25
+
+**Context.** Staff and the other owner write on invoices: "new" next to a new product, the name of another supplier, a signature. Document Intelligence reads handwriting too, and puts it in whichever table cell it falls into. On Agrotis 238742 the lines became "KINGSTON DTXM 64GB 3.0 offiserv" and "Cutting Mat A2 new", which spoils name matching and ends up in new items' names. Zein: ignore handwritten text completely.
+
+**Decision.**
+- Document Intelligence marks handwritten text (the `styles` part of its answer, with `isHandwritten` and a confidence). Before any supplier profile reads a page, that text is taken out of every table cell, the page text and the word list (`layout.without_handwriting`, called once in `base.parse`, so every supplier gets it).
+- **Only marks it is at least 90% sure of count.** On the real scans, true handwriting scored 0.95–1.0, while the low scores were printed text it was unsure of: a "%" in a column header, a "V", and the "2" in a Coca-Cola quantity cell (0.5). Removing that "2" would have lost a real quantity.
+- The page text keeps its length (handwriting becomes spaces), so every position the rest of the code uses still points at the right place.
+- If a cell held only handwriting, it becomes empty. A number that is then missing is asked for ("Type the numbers as printed on the paper"), so nothing is guessed.
+- The picture of the line in the review window still shows the paper as it is, notes included.
+
+**Alternatives considered.**
+- *Ignore all handwriting, whatever the confidence.* Rejected: it would delete printed digits Document Intelligence wasn't sure about, and a lost quantity is worse than an extra word.
+- *Strip known words ("new") from names.* Rejected: notes can say anything.
+- *Ask staff not to write on invoices.* Not realistic, and it was the other owner's note.
+
+**Reasoning.** Notes are for people, not for the stock system. Document Intelligence already says which text is handwritten, and the 0.9 cut-off comes from the scans themselves: it removes every real note in the samples and keeps every printed digit.
+
+---
+
+## D-028: The old supplier lists' own barcodes become unconfirmed answers, once
+
+**Status:** Accepted · 2026-10-25
+
+**Context.** Coca-Cola invoices print each can's or bottle's barcode, and for many products it isn't the barcode PowerSoft has (PowerSoft holds the one on the shelf pack). On a first Coca-Cola invoice only 2 of 25 lines matched; the rest were "This item was not found", and staff would have to search for each. But Zein's old per-supplier Excels (`legacy_supplier_lists.xlsx`, D-018) hold exactly those supplier barcodes: Fanta Lemon is 5449000317667 there, as on the invoice. The tool only ever took the *names* from those lists.
+
+**Decision.**
+- Once per install, on start-up, each old list's barcode becomes a learned row for that supplier: **unconfirmed** (provisional), source "legacy barcode". The line then asks "Is it this item?" ("Found by its barcode in the old supplier list, not yet confirmed"), one tap instead of a search, and the YES is learned like any other answer.
+- **Skipped:** barcodes PowerSoft already has (those match today with no question, and must keep doing so), a barcode on two items, items no longer in PowerSoft, barcodes with a wrong check digit, and rows whose name shares no word with the item's. That last check exists because the old lists have a few shifted rows ("NUTELLA JAR 750GR" -> "GEEKBAR KIT OFFER").
+- On the shop's data: 119 barcodes (76 Athenites, 14 Coca-Cola, a few for 9 other suppliers). On the first Coca-Cola invoice, 11 of 25 lines now match.
+- The monthly check (D-026) skips these rows until staff have confirmed them.
+
+**Alternatives considered.**
+- *Trust them (no question).* Rejected: the old lists contain mistakes (see above), and a wrong trusted row books the wrong item silently. One tap per product is a small price.
+- *Take every old barcode, including the ones PowerSoft has.* Rejected: it would add a question to lines that today match by PowerSoft's barcode with none.
+- *Leave it: staff search once per product.* Works, but every search is slower and easier to get wrong than a YES.
+
+**Reasoning.** It uses work the shop already did (years of supplier lists) to turn the slowest kind of question into the quickest, without trusting data known to have errors.
+
+**Found on the way: six shifted rows in the old lists.** Their *names* were taken in as trusted in October, so these lines would be booked to the wrong item without a question: Athenites "HERSHEYS SALTED CARAMEL 90GR" -> 1262 (a 7Days croissant), "KEAN MANGO/RODI 1LTR" -> 1260 (Hersheys), "NUTELLA JAR 750GR" -> 1355 (Geekbar kit), "HARIBO WEINLAND 100GR" -> 263 (Skittles); Agrotis "MILLIMETRE PAD A4" -> 1025 and "SELECT SQUARED EXERCISE BOOK A4" -> 1024 (smoking papers). Zein deletes them in the learned table (D-026); the next such line is then asked.
+
+---
+
+## D-029: Two new layouts: Coca-Cola, and Agrotis' shop-counter invoice
+
+**Status:** Accepted · 2026-10-25
+
+**Context.** Two invoice layouts reached the shop in the first week that the tool didn't know. Coca-Cola HBC delivers weekly; its invoices (one to three pages, scanned sideways, sometimes two invoices in one scan) were listed as "enter by hand". Agrotis has a second printout, from their shop counter, in Greek, which read no lines at all.
+
+**Decision.**
+- **Coca-Cola** (`suppliers/cocacola.py`): one table per page: barcode of one bottle or can, Coca-Cola's code, a description that holds the case size ("1.5 PET X6" = 6, "330 CAN 4X6" = 24), cases, price per case, regular and promo discount, net amount, VAT.
+  - The case size is read from the description and **confirmed by the price**, so a case whose price fits our cost goes in with no question (D-005).
+  - The price compared is what we actually pay (after both discounts): our PowerSoft costs are net. For Monster, the net price of a case divided by 24 is exactly our cost per can; compared before the promo, it looked like 32 cans.
+  - A free case (promo, net 0.00) is checked against its price before the promo, and its cost is averaged with the paid cases (D-009).
+  - Every page repeats the document number, so pages and invoices are told apart by it (D-004). The "Totals" row is not an item.
+  - A deposit on returnables is taken off the printed total (it isn't stock). No invoice with one has been seen yet; if this is wrong, the total check will say so.
+- **Agrotis shop counter** (`suppliers/agrotis_pos.py`): Greek columns, no barcode, decimal commas, invoice number "S02 - " and seven digits, total "ΟΛΙΚΟ ΤΙΜΟΛΟΓΙΟΥ".
+  - It is told from the warehouse invoice by that number format. It is tried first, and the warehouse profile takes every other Agrotis page.
+  - Agrotis' item code is the learning key (no barcode). The scanner reads it in Greek or Latin letters ("ΤΤΡΑ4100" / "TTPA4100"), so it is turned into Latin letters first, keeping one key per product.
+  - Column names are matched after Greek look-alikes become Latin (`layout.latinise`, D-021). The two "Σύνολο" columns are told apart by order: the first is before VAT, the second with VAT.
+- Both are checked on every sample: each invoice adds up to its printed total, and the two Coca-Cola invoices scanned together split correctly.
+
+**Alternatives considered.**
+- *One Agrotis profile handling both printouts.* Rejected: the shared code reads one table layout per profile. Two small profiles are clearer than one with branches.
+- *Strip Coca-Cola's codes ("SLK KC CYGR") from the descriptions to match names better.* Not done: barcodes (D-028) and Coca-Cola's own code do the matching after the first invoice, and staff see the description as printed.
+
+**Reasoning.** Same pattern as every other supplier (D-021): Document Intelligence reads the table, and a short profile says what each column means. Each new layout is about 80 lines of code plus a test, and the checks (line arithmetic, the invoice total) catch what a profile gets wrong.

@@ -49,10 +49,15 @@ def row_to_line(row) -> InvoiceLine | None:
         return None
     flags = []
     _, barcode, name = base.split_code_and_barcode(row["description"].text)
-    vat, vat_flag = base.vat_from_percent(row["vat"])
+    vat_cell, discount_text = row["vat"], row["discount"].text
+    if not vat_cell.text.strip() and None not in (qty, price, total) and abs(qty * price - total) <= 0.02:
+        # The scanner sometimes reads the VAT rate one column to the left, into Discount
+        # (October 2026). With no discount the line adds up as it is, so that number is the VAT.
+        vat_cell, discount_text = row["discount"], ""
+    vat, vat_flag = base.vat_from_percent(vat_cell)
     flags += [vat_flag] if vat_flag else []
     disc = (parse_number(row["disc_pct"].text) or 0.0) / 100
-    discount = parse_number(row["discount"].text) or 0.0
+    discount = parse_number(discount_text) or 0.0
 
     if None in (qty, price, total) or not qty:
         flags.append(base.unreadable_flag("Quantity, price or total"))

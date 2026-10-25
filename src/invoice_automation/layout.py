@@ -73,6 +73,47 @@ def normalise_barcode(text: str) -> str:
     return groups[0]
 
 
+HANDWRITING_MIN = 0.9  # below this, DI's "handwritten" is usually printed text it was unsure of ('2', '%')
+
+
+def without_handwriting(result: dict) -> dict:
+    """The page with handwriting taken out (D-027): notes like 'new' or a supplier's name written next
+    to a line were read into the item's description. DI marks handwritten text in `styles`; only marks
+    it is sure of count, so a faint printed digit is never lost. The page text keeps its length
+    (handwriting becomes spaces), so every offset into it stays valid. Returns a copy."""
+    ranges = [(s["offset"], s["offset"] + s["length"])
+              for style in result.get("styles", [])
+              if style.get("isHandwritten") and (style.get("confidence") or 0) >= HANDWRITING_MIN
+              for s in style.get("spans", [])]
+    if not ranges:
+        return result
+    content = result.get("content", "")
+
+    def handwritten(a: int, b: int) -> bool:
+        return any(s <= a and b <= e for s, e in ranges)
+
+    out = dict(result)
+    chars = list(content)
+    for s, e in ranges:
+        chars[s:e] = " " * (e - s)
+    out["content"] = "".join(chars)
+    out["pages"] = [{**page, "words": [w for w in page.get("words", [])
+                                        if not handwritten(w["span"]["offset"], w["span"]["offset"] + w["span"]["length"])]}
+                    for page in result.get("pages", [])]
+    tables = []
+    for table in result.get("tables", []):
+        cells = []
+        for cell in table["cells"]:
+            text = cell.get("content", "")
+            for s, e in ranges:
+                if any(sp["offset"] <= s and e <= sp["offset"] + sp["length"] for sp in cell.get("spans", [])):
+                    text = re.sub(rf"(?<!\S){re.escape(content[s:e])}(?!\S)", " ", text, count=1)
+            cells.append({**cell, "content": text})
+        tables.append({**table, "cells": cells})
+    out["tables"] = tables
+    return out
+
+
 def _word_spans(result: dict) -> list[tuple[int, int, float]]:
     return [
         (w["span"]["offset"], w["span"]["offset"] + w["span"]["length"], w["confidence"])

@@ -18,6 +18,7 @@ from openpyxl.styles import Font, PatternFill
 
 from .catalogue import name_key
 from .files import save_atomic
+from .layout import ean_is_valid, normalise_barcode
 
 TABLE_PATH = Path("data/supplier_items.xlsx")
 LEGACY_PATH = Path("data/reference/legacy_supplier_lists.xlsx")
@@ -171,3 +172,48 @@ def _seed_from_legacy() -> list[SupplierItem]:
             last_invoice="", previous_cost=None, last_seen=str(date(2026, 10, 14)),
         )
     return list(rows.values())
+
+
+LEGACY_BARCODE = "legacy barcode"  # source of the rows below
+
+
+def names_related(a: str, b: str) -> bool:
+    """Do two names for one product share any word? Abbreviations count by their first 4 letters
+    ('CHOC/' and 'CHOCOLATE'); numbers and short words don't count. A name with no such words passes."""
+    def words(name):
+        return {w[:4] for w in name_key(name).split() if len(w) > 2 and not any(c.isdigit() for c in w)}
+    wa, wb = words(a), words(b)
+    return not wa or not wb or bool(wa & wb)
+
+
+def add_legacy_barcodes(table: SupplierItems, item_names: dict[str, str], powersoft_barcodes: set[str]) -> int:
+    """Once (D-028): the old masters also hold each supplier's own barcode for an item, which PowerSoft
+    often doesn't have (Coca-Cola prints its can's barcode; PowerSoft has the shelf's). Each one becomes
+    an unconfirmed answer, so the line asks "Is it this item?" instead of "not found". `item_names` maps
+    PowerSoft item code -> name. Skipped: barcodes PowerSoft already has (those match today, with no
+    question), barcodes on two items, items no longer in PowerSoft, misread ones, and rows whose name has
+    nothing in common with the item's (the old lists have a few shifted rows: 'NUTELLA JAR 750GR' ->
+    'GEEKBAR KIT OFFER'). Returns how many were added; the caller saves the table and runs this once."""
+    ws = openpyxl.load_workbook(LEGACY_PATH, read_only=True).worksheets[0]
+    found: dict[tuple[str, str], set[str]] = {}
+    details: dict[tuple[str, str], tuple] = {}
+    for file_name, code, description, barcode, cost, _code in ws.iter_rows(min_row=2, values_only=True):
+        supplier = LEGACY_SUPPLIERS.get(file_name)
+        barcode = normalise_barcode(str(barcode or ""))
+        if supplier and code is not None and barcode:
+            found.setdefault((supplier, barcode), set()).add(str(code))
+            details[(supplier, barcode)] = (str(description or ""), cost)
+    added = 0
+    for (supplier, barcode), codes in found.items():
+        code = next(iter(codes))
+        description, cost = details[(supplier, barcode)]
+        if (len(codes) > 1 or code not in item_names or not ean_is_valid(barcode) or barcode in powersoft_barcodes
+                or table.get(supplier, "barcode", barcode) or not names_related(description, item_names[code])):
+            continue
+        table.upsert(SupplierItem(
+            supplier=supplier, key_type="barcode", key=barcode, supplier_description=description, item_code=code,
+            pack_factor=None, status=PROVISIONAL, source=LEGACY_BARCODE,
+            last_cost=float(cost) if isinstance(cost, (int, float)) else None,
+            last_invoice="", previous_cost=None, last_seen=str(date.today())))
+        added += 1
+    return added

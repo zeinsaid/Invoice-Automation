@@ -38,8 +38,8 @@ EDITABLE = {"quantity": "Quantity", "unit_price": "Unit Selling Price", "discoun
 NUMBER = [r"Invoice No\s*\.?\s*:?\s*(\d{6,})"]  # read as 'Invoice No .:\n1000748334'
 DATE = [r"Date/Time:?\s*(\d{2}/\d{2}/\d{2,4})"]
 # On the last page: 'Total (VAT) Included:\n-5.98\n1,026.26'. The first number is the sum of the
-# line discounts, printed only when there are any; the second is the total to pay.
-TOTAL = [r"Total \(VAT\) Included:?\s*(?:-\d[\d,]*\.\d{2}\s+)?(\d[\d,]*\.\d{2})"]
+# line discounts ('0.00' when there are none, or left out); the second is the total to pay.
+TOTAL = [r"Total \(VAT\) Included:?\s*(?:-?\d[\d,]*\.\d{2}\s+)?(\d[\d,]*\.\d{2})"]
 # Page 2 onwards repeats the table without its header (D-004). It is read as 8 columns, or as 7 when
 # the line number and description share a cell (invoice 1000752311).
 CONTINUATION_COLUMNS = (7, 8)

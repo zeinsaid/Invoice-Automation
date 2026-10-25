@@ -29,13 +29,14 @@ from .matching import Match, match_line, similar_names, suggest_pack, usable_bar
 from .model import MATCH, ORANGE, PACK, RED, UNREADABLE, ZEIN, Flag, Invoice, InvoiceLine
 from .files import save_atomic
 from .output import OutputRow, write_invoice_excel
-from .supplier_items import PROVISIONAL, TABLE_PATH, TRUSTED, SupplierItem, SupplierItems
+from .supplier_items import PROVISIONAL, TABLE_PATH, TRUSTED, SupplierItem, SupplierItems, add_legacy_barcodes
 
 STATE_DIR = Path("data/state")
 QUEUE = STATE_DIR / "queue.json"
 NEW_ITEMS = STATE_DIR / "new_items.csv"  # codes issued by the tool = local additions (D-012, D-018)
 PROCESSED = STATE_DIR / "processed_invoices.csv"  # duplicate-scan guard (D-018)
 PRICE_CHANGES = STATE_DIR / "price_changes.csv"  # D-009
+LEGACY_BARCODES_DONE = STATE_DIR / "legacy_barcodes.txt"  # the date the old lists' barcodes were taken in (D-028)
 FLAG_ITEMS = Path("data/flag_items.csv")  # items that always need a look, e.g. single/pack pairs (D-005)
 # Only files not yet uploaded to PowerSoft. On the shop PC, env.bat points this at "2. Excel files ready
 # to upload", the folder staff see; everything else stays in 'Admin only' (D-024).
@@ -177,7 +178,13 @@ class Context:
         catalogue = Catalogue.load()
         for item in _load_new_items():
             catalogue.add_local(item)
-        return cls(catalogue, SupplierItems.load(), _load_flag_items())
+        table = SupplierItems.load()
+        if not LEGACY_BARCODES_DONE.exists():  # once per install (D-028)
+            names = {code: item.description for code, item in catalogue.items.items()}
+            if add_legacy_barcodes(table, names, set(catalogue.by_barcode)):
+                table.save()
+            save_atomic(LEGACY_BARCODES_DONE, lambda tmp: tmp.write_text(str(date.today()), encoding="utf-8"))
+        return cls(catalogue, table, _load_flag_items())
 
 
 def evaluate(entry: Entry, ctx: Context) -> Evaluation:
@@ -283,7 +290,8 @@ def _line(line: InvoiceLine, inv: Invoice, ev: Evaluation, ctx: Context) -> Ques
         m = Match(item_answer["code"], None, "staff")
         suggest_pack(m, line, inv.supplier, inv.number, ctx.catalogue, ctx.table)
     elif isinstance(item_answer, dict) and "new" in item_answer:
-        m = Match(None, float(item_answer["new"].get("pieces") or 1), "new_item")
+        # A line that already counts single pieces is never multiplied again, whatever the form said.
+        m = Match(None, 1.0 if line.pieces_known else float(item_answer["new"].get("pieces") or 1), "new_item")
     else:
         m = match_line(line, inv.supplier, inv.number, ctx.catalogue, ctx.table)
         if item_answer == "yes":
@@ -459,7 +467,10 @@ def mark_uploaded(names: list[str]) -> None:
             if dest.exists():
                 dest = target / f"{source.stem} {datetime.now():%H%M%S}{source.suffix}"
             try:
-                shutil.move(source, dest)
+                # A rename, not shutil.move: with the file open in Excel, move copies it and then fails to
+                # delete it, leaving a second copy in Uploaded. A rename either happens or doesn't (both
+                # folders are on the same drive, D-024).
+                source.rename(dest)
             except PermissionError:
                 raise PermissionError(f"{name} is open in Excel. Close it and press the button again.") from None
         waiting.pop(name, None)
@@ -510,6 +521,8 @@ def _learn(ev: Evaluation, ctx: Context) -> None:
             if "staff" in m.method or "+pack" in m.method or m.method == "new_item":
                 # An explicit answer overrides whatever was stored before.
                 row.item_code, row.pack_factor, row.status, row.source = m.item_code, m.pack_factor, TRUSTED, m.method
+            if line.pieces_known:
+                row.pack_factor = 1.0  # these invoices count single pieces (corrects the Blends learned as 10)
 
 
 # --- New item codes (D-012) ---------------------------------------------------------------------

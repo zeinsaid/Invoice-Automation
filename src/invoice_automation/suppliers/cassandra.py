@@ -19,7 +19,8 @@ from . import base
 
 SUPPLIER = "Cassandra Trading LTD"
 SHORT_NAME = "Cassandra"
-MARKERS = ("CASSANDRA",)
+# Their VAT number too: a scan that cuts off the logo still has it (2026-10-23).
+MARKERS = ("CASSANDRA", "99000044T")
 
 COLUMNS = {
     "product": r"PRODUCT|[ΠN]POION",
@@ -41,7 +42,8 @@ TOTAL = [r"TOTAL EURO\s*(\d+[.,]\d{2})"]
 
 
 def matches(page_text: str) -> bool:
-    return "CASSANDRA" in page_text.upper()
+    text = page_text.upper()
+    return any(m in text for m in MARKERS)
 
 
 def parse(result, source, page_index, corrections=None):

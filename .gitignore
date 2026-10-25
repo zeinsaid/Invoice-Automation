@@ -28,3 +28,7 @@ Thumbs.db
 # Private working notes (job hunt, Azure billing): kept locally only
 CLAUDE.md
 TODO.md
+
+# Files brought over from the shop PC for checks (real data): never commit
+NEW/
+new/

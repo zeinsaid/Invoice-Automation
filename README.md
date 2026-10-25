@@ -30,7 +30,7 @@ input/  scanned PDFs
 output/Ready to upload/  → staff upload it to PowerSoft
 ```
 
-**Flag, don't guess.** Nothing uncertain reaches the stock system. A near match ("PERRIER WATR" vs "PERRIER WATER") is shown with the differing words in red and confirmed by staff. A line whose numbers don't add up is checked against the paper. The Excel is only written once every question on the invoice is answered.
+**Flag, don't guess.** Nothing uncertain reaches the stock system. A near match ("PERRIER WATR" vs "PERRIER WATER") is shown with the differing words in red and confirmed by staff. A line whose numbers don't add up is checked against the paper. Notes handwritten on the invoice are ignored. The Excel is only written once every question on the invoice is answered.
 
 **Cases and packs, by price.** Suppliers sell by the case; the shop sells by the piece. When an invoice line doesn't say how many pieces a unit holds, the tool divides its price by the known cost of one piece. If 24.7 times one can, it suggests 24 and asks staff to confirm. A learned pack size is re-checked by price on every invoice, so a supplier switching from 24-packs to 12-packs is caught. Pack items the shop sells separately (a 12-pack of water that takes 12 bottles off stock) are linked to their single bottle by name, and go in as 12 bottles without a question.
 
@@ -53,7 +53,7 @@ The tool runs on the shop's Windows PC, which resets its C: drive at every resta
 
 ## How it was built
 
-I designed this project and made its decisions: what to automate and what to leave to staff, the matching order, how packs are detected, what gets asked and what doesn't. The code was written with [Claude Code](https://claude.com/claude-code), one reviewed step at a time. Every significant choice and its reasoning is in **[DECISIONS.md](DECISIONS.md)**: 26 decisions, from dropping an LLM step to the deployment design. The tool was tested on real invoices from every supplier it handles, including two rehearsals with real invoices before going live.
+I designed this project and made its decisions: what to automate and what to leave to staff, the matching order, how packs are detected, what gets asked and what doesn't. The code was written with [Claude Code](https://claude.com/claude-code), one reviewed step at a time. Every significant choice and its reasoning is in **[DECISIONS.md](DECISIONS.md)**: 29 decisions, from dropping an LLM step to the deployment design. The tool was tested on real invoices from every supplier it handles, and has been in use at the shop since October 2026.
 
 ## Repository layout
 

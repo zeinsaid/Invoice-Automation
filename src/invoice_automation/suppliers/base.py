@@ -19,7 +19,7 @@ import re
 from dataclasses import replace
 from datetime import date
 
-from ..layout import Cell, ean_is_valid, find_table, parse_number
+from ..layout import Cell, ean_is_valid, find_table, parse_number, without_handwriting
 from ..model import RED, UNREADABLE, YELLOW, ZEIN, Flag, Invoice, InvoiceLine
 
 MIN_CONFIDENCE = 0.9  # below this, a number no check covers is flagged yellow (D-021)
@@ -28,6 +28,7 @@ MIN_CONFIDENCE = 0.9  # below this, a number no check covers is flagged yellow (
 def parse(profile, result: dict, source, page_index: int, corrections: dict | None = None) -> Invoice:
     """`corrections` maps a table row index to {field: text} typed by staff from the paper (D-022)."""
     corrections = corrections or {}
+    result = without_handwriting(result)  # notes written on the paper are never part of a line (D-027)
     text = result.get("content", "")
     lines = []
     rows = find_table(result, profile.COLUMNS, profile.REQUIRED)
