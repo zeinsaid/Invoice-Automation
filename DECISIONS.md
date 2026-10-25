@@ -766,6 +766,7 @@ The 11 VAT corrections were made by hand and verified in the second 2026-10-14 e
 
 **Amendment (2026-10-25): two small fixes after the first week.**
 - *"Mark as uploaded" with the file open in Excel left a copy behind.* Python's move copied the file to `Uploaded`, then failed to delete the original (Excel locks it), and staff were told to close Excel and press again. Twice on 21 October that left two identical copies in `Uploaded` (nothing was uploaded twice). A plain rename is used instead: it either happens or fails cleanly. Both folders are on the same drive (D-024), so a rename is always possible.
+- *An invoice an automatic check sent to Zein goes back to staff by itself once an update fixes the cause.* At every start, each invoice on Zein's list that a check put there (not "I'm not sure") is read again; if it no longer needs Zein, it returns to staff. Admin mode also shows Zein's list first. *Why:* Pambos' unreadable VAT was fixed in code, but the invoice would have stayed on Zein's list, and pressing "Start this invoice again" made it a normal invoice that stood in front of everything else in admin mode, with 12 questions only the shelf can answer.
 - *The update downloaded the demo video.* GitHub's zip of the repository included `docs\` (the demo video and GIF), `tests\` and `scripts\`. `.gitattributes` now marks them `export-ignore`, so they stay on GitHub for visitors but are left out of the zip the shop PC downloads.
 
 ---

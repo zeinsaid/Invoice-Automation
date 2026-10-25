@@ -53,3 +53,17 @@ def test_not_for_the_shop_leaves_out_every_line_of_that_product():
 
 def _check(line, ev):
     return pipeline._line(line, None, ev, None)  # a skipped line needs neither the invoice nor the catalogue
+
+
+def test_fixed_invoices_go_back_to_staff_but_not_sure_ones_stay(monkeypatch):
+    # After an update fixes an automatic check's cause, the invoice leaves Zein's list by itself;
+    # one staff sent with "I'm not sure" stays. Zein's mode then shows his list first.
+    from invoice_automation import session as sm
+    fixed = Entry("a.pdf", [0], "", status="needs_zein", note="Line 3: VAT rate '' could not be read.")
+    unsure = Entry("b.pdf", [0], "", status="needs_zein", note=sm.NOT_SURE + "How many pieces in 1 unit?")
+    monkeypatch.setattr(sm, "evaluate", lambda entry, ctx: Evaluation(entry, outcome="questions"))
+    monkeypatch.setattr(sm, "save_queue", lambda entries: None)
+    s = sm.Session(zein=True, ctx=None, entries=[fixed, unsure])
+    assert (fixed.status, unsure.status) == ("pending", "needs_zein")
+    monkeypatch.setattr(sm, "evaluate", lambda entry, ctx: Evaluation(entry, questions=[pipeline.Question("x", "x", "x")]))
+    assert s.next_question()[0] is unsure

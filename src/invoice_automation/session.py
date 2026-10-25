@@ -20,6 +20,7 @@ REPORTS_DIR = Path("data/reports")
 LAST_EXPORT = STATE_DIR / "last_export.txt"  # the export the last report described (D-023)
 TIMINGS = STATE_DIR / "timings.csv"  # time staff spent per invoice, for real before/after numbers
 EXPORT_MAX_AGE = 45  # days; after that the report asks Zein for a fresh PowerSoft export
+NOT_SURE = "Staff were not sure: "  # how an invoice staff sent to Zein is noted
 
 
 @dataclass
@@ -39,6 +40,25 @@ class Session:
     events: list[Event] = field(default_factory=list)
     started: dict[str, float] = field(default_factory=dict)  # invoice -> when its first question was shown
 
+    def __post_init__(self) -> None:
+        self._return_fixed()
+
+    def _return_fixed(self) -> None:
+        """An invoice an automatic check sent to Zein goes back to staff once an update has fixed the
+        cause (Pambos' unreadable VAT, October 2026). One staff sent with "I'm not sure" stays with Zein."""
+        changed = False
+        for entry in self.entries:
+            if entry.status != ZEIN_LIST or entry.note.startswith(NOT_SURE):
+                continue
+            try:
+                outcome = evaluate(entry, self.ctx).outcome
+            except Exception:  # noqa: BLE001 - e.g. the scan was moved away: it simply stays on Zein's list
+                continue
+            if outcome != "zein":
+                entry.status, entry.note, changed = PENDING, "", True
+        if changed:
+            save_queue(self.entries)
+
     def add(self, pdfs: list[Path], move: bool = True) -> None:
         self.entries = enqueue(pdfs, move)
 
@@ -47,7 +67,9 @@ class Session:
         if any(e.status == NEW for e in self.entries):
             self.entries = split(self.entries)
             save_queue(self.entries)
-        for entry in self.entries:
+        # Zein's mode is for Zein's list: those come first, so a long staff invoice doesn't stand in front.
+        order = sorted(self.entries, key=lambda e: e.status != ZEIN_LIST) if self.zein else self.entries
+        for entry in order:
             if entry.status != PENDING and not (self.zein and entry.status == ZEIN_LIST):
                 continue
             ev = evaluate(entry, self.ctx)
@@ -77,7 +99,7 @@ class Session:
             save_queue(self.entries)
 
     def not_sure(self, entry: Entry, question: Question) -> None:
-        note = f"Staff were not sure: {question.title}" + (f" ({question.detail})" if question.detail else "")
+        note = f"{NOT_SURE}{question.title}" + (f" ({question.detail})" if question.detail else "")
         self._event(entry, ZEIN_LIST, note)
 
     def not_for_shop(self, entry: Entry, ev: Evaluation, line: InvoiceLine) -> None:
