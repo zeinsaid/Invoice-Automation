@@ -17,7 +17,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill
 
 from .catalogue import name_key
-from .files import save_atomic
+from .files import read_rows, save_atomic
 from .layout import ean_is_valid, normalise_barcode
 
 TABLE_PATH = Path("data/supplier_items.xlsx")
@@ -86,9 +86,8 @@ class SupplierItems:
             table = cls(_seed_from_legacy(), path)
             table.save()
             return table
-        ws = openpyxl.load_workbook(path, read_only=True).active
         rows = []
-        for values in ws.iter_rows(min_row=2, values_only=True):
+        for values in read_rows(path):
             if not values or not values[0]:
                 continue
             d = dict(zip(COLUMNS, values))
@@ -158,9 +157,8 @@ class SupplierItems:
 
 def _seed_from_legacy() -> list[SupplierItem]:
     """First run only: each supplier's own wording for our items, from the old masters (D-018)."""
-    ws = openpyxl.load_workbook(LEGACY_PATH, read_only=True).worksheets[0]
     rows: dict[tuple, SupplierItem] = {}
-    for file_name, code, description, _barcode, cost, _code in ws.iter_rows(min_row=2, values_only=True):
+    for file_name, code, description, _barcode, cost, _code in read_rows(LEGACY_PATH, first_sheet=True):
         supplier = LEGACY_SUPPLIERS.get(file_name)
         if not supplier or code is None or not description:
             continue
@@ -194,10 +192,9 @@ def add_legacy_barcodes(table: SupplierItems, item_names: dict[str, str], powers
     question), barcodes on two items, items no longer in PowerSoft, misread ones, and rows whose name has
     nothing in common with the item's (the old lists have a few shifted rows: 'NUTELLA JAR 750GR' ->
     'GEEKBAR KIT OFFER'). Returns how many were added; the caller saves the table and runs this once."""
-    ws = openpyxl.load_workbook(LEGACY_PATH, read_only=True).worksheets[0]
     found: dict[tuple[str, str], set[str]] = {}
     details: dict[tuple[str, str], tuple] = {}
-    for file_name, code, description, barcode, cost, _code in ws.iter_rows(min_row=2, values_only=True):
+    for file_name, code, description, barcode, cost, _code in read_rows(LEGACY_PATH, first_sheet=True):
         supplier = LEGACY_SUPPLIERS.get(file_name)
         barcode = normalise_barcode(str(barcode or ""))
         if supplier and code is not None and barcode:

@@ -101,7 +101,7 @@ def combine(pages: list[Invoice]) -> Invoice:
         printed_total=next((p.printed_total for p in reversed(pages) if p.printed_total is not None), None),
         computed_total=computed_total(lines),
         source=first.source, pages=[i for p in pages for i in p.pages],
-        flags=[f for p in pages for f in p.flags], page_angle=first.page_angle,
+        flags=[f for p in pages for f in p.flags], page_angle=first.page_angle, discount=first.discount,
     )
     if not lines:
         invoice.flags.append(Flag(RED, "row", "No item lines could be read.", ZEIN))
@@ -199,6 +199,8 @@ def _date(s: str | None) -> date | None:
         return None
     try:
         day, month, year = (int(x) for x in re.split(r"[/.\-]", s))
+        if day > 31:  # '2026-10-26': year first
+            day, year = year, day
         return date(year + 2000 if year < 100 else year, month, day)
     except ValueError:
         return None

@@ -51,7 +51,7 @@ def main() -> None:
         where = f"{r.supplier} | {r.key_type} {r.key} | '{r.supplier_description}'"
         item = catalogue.items.get(r.item_code)
         if item is None:
-            found.append((0, where, f"item {r.item_code} is not in the PowerSoft export any more"))
+            found.append((0, where, f"item {r.item_code} is inactive or not in the PowerSoft export any more"))
             continue
         reasons = []
         wording = name_key(r.supplier_description)

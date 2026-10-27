@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 from typing import Callable
 
+import openpyxl
+
 
 def save_atomic(path: Path, write: Callable[[Path], None]) -> None:
     """Call `write(tmp)` to write the new content, then put it in place of `path`."""
@@ -22,3 +24,15 @@ def save_atomic(path: Path, write: Callable[[Path], None]) -> None:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+
+
+def read_rows(path: Path, first_sheet: bool = False) -> list[tuple]:
+    """The values of every row below the header. A read-only workbook keeps its file open until it is
+    closed, and Windows can't replace an open file: the learned table, loaded and saved again at once
+    (an invoice with no questions), failed with "open in Excel". So it is closed here straight away."""
+    wb = openpyxl.load_workbook(path, read_only=True)
+    try:
+        ws = wb.worksheets[0] if first_sheet else wb.active
+        return list(ws.iter_rows(min_row=2, values_only=True))
+    finally:
+        wb.close()

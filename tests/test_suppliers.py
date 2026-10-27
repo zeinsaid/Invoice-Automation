@@ -5,7 +5,7 @@ import re
 import pytest
 
 from invoice_automation.layout import without_handwriting
-from invoice_automation.suppliers import agrotis_pos, athenites, cocacola, identify, pambos
+from invoice_automation.suppliers import agrotis_pos, asian, athenites, cocacola, identify, pambos, skipped_reason
 
 
 def _page(rows, content="", styles=()):
@@ -60,6 +60,17 @@ def test_pambos_real_discount_is_still_a_discount():
                                   "27.00"]])
     line = pambos.parse(page, "x.pdf", 0).lines[0]
     assert (line.vat_rate, line.amount_excl_vat, line.flags) == (19, 27.0, [])
+
+
+def test_pambos_description_read_into_the_row_above():
+    page = _page([PAMBOS_HEADER,
+                  ["GKSPOD9", "6979193576897 GB POD BANANA ICE 9 *10pcs 6979193577153 GB POD STRAWBERRY WATERMELON 11",
+                   "30", "1.50", "", "19", "", "45.00"],
+                  ["GKSPOD11", "*10pcs", "30", "1.50", "", "", "19", "45.00"]])
+    banana, watermelon = pambos.parse(page, "x.pdf", 0).lines
+    assert (banana.barcode, banana.description) == ("6979193576897", "GB POD BANANA ICE 9 *10pcs")
+    assert (watermelon.barcode, watermelon.description) == ("6979193577153", "GB POD STRAWBERRY WATERMELON 11 *10pcs")
+    assert watermelon.pieces_known  # '*10pcs' is the box: the quantity already counts pods
 
 
 # --- Agrotis shop counter --------------------------------------------------------------------------
@@ -132,3 +143,30 @@ def test_coca_cola_deposit_is_not_stock():
                                 "6,00", "0,00", "24,00", "19"]],
                  COLA_TEXT.replace("28,56", "31,56") + "\nTOTAL VALUE OF RETURNABLES\n3,00")
     assert cocacola.parse(page, "x.pdf", 0).printed_total == 28.56
+
+
+# --- Asian Food Market order invoice (D-030) -------------------------------------------------------
+
+ASIAN_TEXT = ("CLIENT ZHENG DONISCHAL LTD ORDER NO .: SXS-2026-10-26-00007 DATE: 2026-10-26 11:55:56 "
+              "TOTAL QUANTITY: 30 TOTAL AMOUNT: 1,040")
+ASIAN_HEADER = ["NO.", "BAR CODE", "NAME", "UNIT", "QUANTITY", "PRICE", "AMOUNT", "NOTES"]
+
+
+def test_asian_order_invoice():
+    page = _page([ASIAN_HEADER,
+                  ["1", "1111111111116", "LOTTE SOJU APPLE 苹果烧酒", "BTL 瓶", "20", "50", "1000", ""],
+                  ["2", "2222222222222", "KOREAN NOODLES", "袋", "10", "4", "40", ""],
+                  ["SUM", "", "", "", "30", "", "1040", ""]], ASIAN_TEXT)
+    assert identify(ASIAN_TEXT) is asian
+    inv = asian.parse(page, "x.pdf", 0)
+    assert (inv.number, str(inv.date), inv.printed_total, inv.discount) == ("SXS-2026-10-26-00007", "2026-10-26",
+                                                                           1040.0, 0.15)
+    first, second = inv.lines  # the SUM row is not an item
+    assert (first.description, first.quantity, first.flags) == ("LOTTE SOJU APPLE", 20, [])
+    assert (first.amount_incl_vat, second.amount_incl_vat) == (pytest.approx(850.0), pytest.approx(34.0))  # 15% off
+
+
+def test_asian_till_receipt_is_still_entered_by_hand():
+    receipt = "Cash Invoice ASIAN FOOD MARKET ZHENG DONISCHAL LTD InvNo: 00155409"
+    assert identify(receipt) is None
+    assert "till receipt" in skipped_reason(receipt)

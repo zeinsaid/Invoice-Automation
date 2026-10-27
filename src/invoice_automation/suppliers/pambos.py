@@ -4,7 +4,8 @@ Columns: Item | Description | Quantity | Price | Disc % | Discount | VAT% | Tota
 - Item is Pambos' own code (CRYSTALVAPE14), the steadiest key: long descriptions sometimes spill
   into the next row, mixing up barcodes and names, but the code stays on its row.
 - The barcode is the first number in the description.
-- Price is per piece excl. VAT; Total is excl. VAT.
+- Price is per piece excl. VAT; Total is excl. VAT. Quantities count single pieces, even when the
+  name says '*10pcs' (that's the box they come in), so nothing is ever multiplied (D-005 amendment).
 """
 
 import sys
@@ -43,6 +44,17 @@ def parse(result, source, page_index, corrections=None):
     return base.parse(sys.modules[__name__], result, source, page_index, corrections)
 
 
+def adjust(invoice, text: str) -> None:
+    """A description can be read into the row above (invoice IN2600006599): 'GB POD BANANA ICE 9 *10pcs
+    6979193577153 GB POD STRAWBERRY WATERMELON 11' on GKSPOD9's row, and only '*10pcs' on GKSPOD11's.
+    A second barcode in a description, with the next line having none, goes back to that line."""
+    for line, below in zip(invoice.lines, invoice.lines[1:]):
+        before, barcode, after = base.split_code_and_barcode(line.description)
+        if barcode and not below.barcode:
+            line.description = before
+            below.barcode, below.description = barcode, f"{after} {below.description}".strip()
+
+
 def row_to_line(row) -> InvoiceLine | None:
     qty, price, total = (parse_number(row[k].text) for k in ("qty", "price", "total"))
     if qty is None and total is None:
@@ -69,6 +81,6 @@ def row_to_line(row) -> InvoiceLine | None:
     return InvoiceLine(
         line_no="", description=name, barcode=barcode,
         quantity=qty, amount_excl_vat=total, vat_rate=vat,
-        list_price_excl_vat=total / qty if qty else None,
+        list_price_excl_vat=total / qty if qty else None, pieces_known=True,
         supplier_code=row["code"].text.strip(), flags=flags,
     )

@@ -8,8 +8,9 @@ import pytest
 
 from invoice_automation.backup import backup_daily
 from invoice_automation.catalogue import EXPORT_COLUMNS, Catalogue
-from invoice_automation.files import save_atomic
-from invoice_automation.pipeline import Context
+from invoice_automation.files import read_rows, save_atomic
+from invoice_automation.pipeline import Context, move_off_inactive
+from invoice_automation.supplier_items import SupplierItem, SupplierItems
 
 
 def write_export(folder, day, n, columns=EXPORT_COLUMNS):
@@ -51,6 +52,25 @@ def test_export_missing_a_column_falls_back_to_the_previous_one(powersoft):
     write_export(powersoft, 2, 100, [c for c in EXPORT_COLUMNS if c != "Storable"])
     cat = Catalogue.load(powersoft)
     assert cat.export_name == "items_export_2026-10-01.csv" and "Storable" in cat.warnings[0]
+
+
+def test_inactive_items_are_never_matched_and_their_codes_stay_taken(powersoft):
+    # D-031: an export with the Active column. Cola 1 was swapped for the item coded with its barcode; 3 is just inactive.
+    with (powersoft / "items_export_2026-10-01.csv").open("w", encoding="cp1253", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(EXPORT_COLUMNS[:3] + ["Active"] + EXPORT_COLUMNS[3:])
+        w.writerow(["1", "COLA", "17", "No", "19%", "1.00", "2.00", "S", "", "C", "Yes"])
+        w.writerow(["5449000000439", "COLA", "5449000000439", "Yes", "19%", "1.00", "2.00", "S", "", "C", "Yes"])
+        w.writerow(["3", "POD", "3", "No", "19%", "1.00", "2.00", "S", "", "C", "Yes"])
+    cat = Catalogue.load(powersoft)
+    assert list(cat.items) == ["5449000000439"] and set(cat.inactive) == {"1", "3"}
+    assert cat.highest_numeric_code() == 3  # the next new item is 4, not 5449000000440
+    assert cat.by_barcode == {"5449000000439": ["5449000000439"]}
+    assert (cat.active_twin("1"), cat.active_twin("3")) == ("5449000000439", None)  # same name: the same product
+    rows = [SupplierItem("S", "barcode", key, "", code, 2, "trusted", "staff", None, "", None, "")
+            for key, code in (("111", "1"), ("333", "3"))]
+    assert move_off_inactive(SupplierItems(rows), cat) == 1
+    assert [r.item_code for r in rows] == ["5449000000439", "3"] and "moved" in cat.warnings[0]
 
 
 def test_failed_save_keeps_the_old_file(tmp_path):
@@ -153,3 +173,14 @@ def test_names_related():
     from invoice_automation.supplier_items import names_related
     assert names_related("FITNESS CHOCO/BARS 6X23,5G", "Fitness Bar Chocolate 23.5Gr")
     assert not names_related("NUTELLA JAR 750GR", "GEEKBAR KIT OFFER")  # a shifted row in the old lists
+
+
+def test_a_table_just_read_can_be_saved_at_once(tmp_path):
+    # A read-only workbook kept the learned table open, so saving it straight after loading failed.
+    path = tmp_path / "t.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.append(["header"])
+    wb.active.append(["row"])
+    wb.save(path)
+    assert read_rows(path) == [("row",)]
+    save_atomic(path, wb.save)  # raises PermissionError ("open in Excel") on Windows if the file were still open

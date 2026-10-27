@@ -1,6 +1,7 @@
 """Review-engine rules on made-up lines (D-022)."""
 
-from invoice_automation.model import UNREADABLE, ZEIN, InvoiceLine
+from invoice_automation.catalogue import Catalogue, Item
+from invoice_automation.model import UNREADABLE, ZEIN, Invoice, InvoiceLine
 from invoice_automation import pipeline
 from invoice_automation.pipeline import Entry, Evaluation, _answer_keys, skip_id
 from invoice_automation.suppliers import athenites
@@ -67,3 +68,31 @@ def test_fixed_invoices_go_back_to_staff_but_not_sure_ones_stay(monkeypatch):
     assert (fixed.status, unsure.status) == ("pending", "needs_zein")
     monkeypatch.setattr(sm, "evaluate", lambda entry, ctx: Evaluation(entry, questions=[pipeline.Question("x", "x", "x")]))
     assert s.next_question()[0] is unsure
+
+
+# --- An invoice that prints no VAT, with a discount the paper doesn't show (D-030) -------------------
+
+def _asian_invoice(lines, printed_total):
+    inv = Invoice("Asian Food Market LTD", "Asian", "SXS-1", None, lines, printed_total, 0.0, "x.pdf", [0],
+                  discount=0.15)
+    inv.computed_total = athenites.base.computed_total(lines)
+    return Evaluation(Entry("x.pdf", [0], ""), invoice=inv)
+
+
+def test_line_takes_its_items_vat():
+    soju = InvoiceLine("1", "SOJU", "", 10, 119.0, 0, amount_incl_vat=119.0)
+    ctx = pipeline.Context(Catalogue({"7": Item("7", "SOJU", "", 19, 1.0, 2.0, "", "", "", True)}, {}, {}), None, {})
+    pipeline._item_vat(soju, "7", ctx)
+    assert (soju.vat_rate, soju.amount_excl_vat, soju.list_price_excl_vat) == (19, 100.0, 10.0)
+
+
+def test_total_check_takes_the_unprinted_discount_into_account():
+    soju = InvoiceLine("1", "SOJU", "", 10, 85.0, 0, amount_incl_vat=85.0)  # 100 on the paper, 15% off
+    ev = _asian_invoice([soju], printed_total=100.0)
+    pipeline._check_total(ev)
+    assert ev.questions == [] and ev.outcome == "questions"
+    for typed in (100.0, 85.0):  # the paper's total, or what was paid: both are right
+        ev = _asian_invoice([soju], printed_total=None)
+        ev.entry.answers["total"] = typed
+        pipeline._check_total(ev)
+        assert ev.questions == [] and ev.outcome == "questions"

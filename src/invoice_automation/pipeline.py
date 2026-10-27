@@ -184,7 +184,23 @@ class Context:
             if add_legacy_barcodes(table, names, set(catalogue.by_barcode)):
                 table.save()
             save_atomic(LEGACY_BARCODES_DONE, lambda tmp: tmp.write_text(str(date.today()), encoding="utf-8"))
+        if move_off_inactive(table, catalogue):
+            table.save()
         return cls(catalogue, table, _load_flag_items())
+
+
+def move_off_inactive(table: SupplierItems, catalogue: Catalogue) -> int:
+    """Learned answers on an item made inactive move to the active item with its name (D-031: Coca-Cola
+    17 was swapped for 5449000000439). Without one they stay, and matching skips them. Zein's report lists
+    each move. Returns how many moved."""
+    moved = 0
+    for r in table.rows:
+        twin = catalogue.active_twin(r.item_code)
+        if twin:
+            catalogue.warnings.append(f"Learned answer {r.supplier} | {r.key_type} {r.key} moved from inactive "
+                                      f"item {r.item_code} to {twin} (same name).")
+            r.item_code, moved = twin, moved + 1
+    return moved
 
 
 def evaluate(entry: Entry, ctx: Context) -> Evaluation:
@@ -203,6 +219,10 @@ def evaluate(entry: Entry, ctx: Context) -> Evaluation:
         corrections = {k.split(":")[2]: v for k, v in a.items() if k.startswith(f"fix:{page}:")}
         pages.append(profile.parse(layout, Path(entry.file), page, corrections))
     inv = suppliers.base.combine(pages)
+    for line in inv.lines:
+        if line.amount_incl_vat is not None:  # the paper prints no VAT (D-030)
+            _set_vat(line, _likely_vat(line, inv.supplier, ctx))
+    inv.computed_total = suppliers.base.computed_total(inv.lines)
     ev.invoice = inv
     ev.labels = profile.EDITABLE
     if a.get("number"):
@@ -288,6 +308,7 @@ def _line(line: InvoiceLine, inv: Invoice, ev: Evaluation, ctx: Context) -> Ques
     item_answer = a.get(f"item:{row}")
     if isinstance(item_answer, dict) and "code" in item_answer:
         m = Match(item_answer["code"], None, "staff")
+        _item_vat(line, m.item_code, ctx)
         suggest_pack(m, line, inv.supplier, inv.number, ctx.catalogue, ctx.table)
     elif isinstance(item_answer, dict) and "new" in item_answer:
         # A line that already counts single pieces is never multiplied again, whatever the form said.
@@ -297,6 +318,7 @@ def _line(line: InvoiceLine, inv: Invoice, ev: Evaluation, ctx: Context) -> Ques
         if item_answer == "yes":
             m.flags = [f for f in m.flags if f.kind != MATCH]
             m.method += "+staff"
+        _item_vat(line, m.item_code, ctx)
     ev.lines.append((line, m))
 
     if m.method == "new_item":
@@ -329,22 +351,49 @@ def _line(line: InvoiceLine, inv: Invoice, ev: Evaluation, ctx: Context) -> Ques
 
 
 def _check_total(ev: Evaluation) -> None:
-    """D-010 and its amendments: the lines must add up to the total on the paper."""
+    """D-010 and its amendments: the lines must add up to the total on the paper. A discount the paper
+    doesn't print (D-030) is on the lines, not on the paper's total, so the lines are compared before it."""
     inv = ev.invoice
     typed = ev.entry.answers.get("total")
     total = typed if typed is not None else inv.printed_total
-    if total is not None and abs(total - inv.computed_total) <= TOTAL_TOLERANCE:
+    lines_total = round(inv.computed_total / (1 - inv.discount), 2)
+    # Staff who know about the discount may type what was paid instead: that is right too.
+    if total is not None and min(abs(total - lines_total), abs(total - inv.computed_total)) <= TOTAL_TOLERANCE:
         return
     if typed is None:
         ev.questions.append(Question(
             "total", "total", "Type the total to pay, from the paper",
             "The total with VAT, at the bottom of the LAST page." if inv.printed_total is None else
-            f"The tool read {inv.printed_total:.2f}, but the lines add up to {inv.computed_total:.2f}.",
-            data={"computed": inv.computed_total}))
+            f"The tool read {inv.printed_total:.2f}, but the lines add up to {lines_total:.2f}.",
+            data={"computed": lines_total}))
         return
     ev.outcome = RESCAN
-    ev.note = (f"The lines add up to {inv.computed_total:.2f} but the paper says {typed:.2f}. A page may be "
+    ev.note = (f"The lines add up to {lines_total:.2f} but the paper says {typed:.2f}. A page may be "
                "missing: scan ALL pages of this invoice into one PDF and run again.")
+
+
+# --- An invoice that prints no VAT (D-030) -------------------------------------------------------------
+
+def _set_vat(line: InvoiceLine, rate: int) -> None:
+    line.vat_rate = rate
+    line.amount_excl_vat = line.amount_incl_vat / (1 + rate / 100)
+    line.list_price_excl_vat = line.amount_excl_vat / line.quantity if line.quantity else None
+
+
+def _item_vat(line: InvoiceLine, code: str | None, ctx: Context) -> None:
+    """Once the item is known, the line takes its VAT rate from PowerSoft."""
+    if line.amount_incl_vat is not None and code in ctx.catalogue.items:
+        _set_vat(line, ctx.catalogue.items[code].vat)
+
+
+def _likely_vat(line: InvoiceLine, supplier: str, ctx: Context) -> int:
+    """The rate before matching, so the pack-size check compares costs before VAT: the item with this
+    barcode, or learned for it, or the most similar name. A new item keeps it; its row is red anyway."""
+    barcode = usable_barcode(line)
+    learned = ctx.table.get(supplier, "barcode", barcode) if barcode else None
+    codes = [learned.item_code] if learned else list(ctx.catalogue.by_barcode.get(barcode, []) if barcode else [])
+    codes += [c for c, _, _ in similar_names(line.description, supplier, ctx.catalogue, ctx.table, limit=1)]
+    return next((ctx.catalogue.items[c].vat for c in codes if c in ctx.catalogue.items), 19)
 
 
 # --- Finalize ---------------------------------------------------------------------------------

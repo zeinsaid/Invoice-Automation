@@ -635,7 +635,7 @@ class App:
         step = 1
         first = [w for w in waiting if w["items_import"]]
         if first:
-            self.label(box, f"{step}.  Items import, with Modify ticked:", 14, True, pady=(6, 0)).configure(bg=bg)
+            self.label(box, f"{step}.  Items import, Modify NOT ticked:", 14, True, pady=(6, 0)).configure(bg=bg)
             for w in first:
                 self.label(box, f"      {name(w)}   ({w['items_import']})", 13).configure(bg=bg)
             step += 1

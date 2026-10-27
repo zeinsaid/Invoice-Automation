@@ -2,7 +2,8 @@
 
 PowerSoft owns what an item *is*. The tool never edits item data; it only reads the export. New
 items the tool has issued codes for (the ledger, D-012) are merged on top until a fresh export
-contains them.
+contains them. Inactive items (the export's optional Active column, D-031) are never matched, but
+their codes stay taken.
 """
 
 import csv
@@ -11,10 +12,9 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-import openpyxl
 from rapidfuzz import fuzz
 
-from .files import save_atomic
+from .files import read_rows, save_atomic
 
 POWERSOFT_DIR = Path("data/powersoft")
 EXPORT_COLUMNS = ["Item Code", "Item Description", "Barcode", "VAT", "Cost", "Price 1", "Supplier", "Brand",
@@ -22,6 +22,7 @@ EXPORT_COLUMNS = ["Item Code", "Item Description", "Barcode", "VAT", "Cost", "Pr
 # A pack sub-item is named like its single piece plus " xN": "KYKKOS WATER 500ML X12" (D-005 amendment).
 PACK_NAME = re.compile(r"^(.*\S)\s*[xX]\s*(\d+)$")
 PACK_LINK_SCORE = 85  # 0-100 name similarity needed to link a pack to a single piece by a near name
+CODE_DIGITS = 7  # a numeric code this long is a barcode typed in as the code: no new code counts up from it (D-031)
 SHRUNK = 0.9  # a new export with fewer than 90% of the previous one's items is taken as cut off (D-023)
 PACK_LINK_MARGIN = 5  # ... and it must beat the next item by this much, or nothing is linked
 
@@ -49,8 +50,10 @@ def _number(s: str) -> float | None:
 
 
 class Catalogue:
-    def __init__(self, items: dict[str, Item], category_codes: dict[str, str], supplier_codes: dict[str, str]):
-        self.items = items
+    def __init__(self, items: dict[str, Item], category_codes: dict[str, str], supplier_codes: dict[str, str],
+                 inactive: dict[str, str] | None = None):
+        self.items = items  # active items only
+        self.inactive = inactive or {}  # inactive item code -> name: never matched, code never issued again (D-031)
         self.category_codes = category_codes  # category name -> code
         self.supplier_codes = supplier_codes  # supplier name -> code
         self.by_barcode: dict[str, list[str]] = {}
@@ -79,19 +82,19 @@ class Catalogue:
         warnings, usable = [], []  # usable: (file, items), newest first; two are enough to compare
         for path in reversed(exports):
             try:
-                usable.append((path, _read_export(path)))
+                usable.append((path, *_read_export(path)))
             except ValueError as e:
                 warnings.append(f"{path.name} was NOT used: {e}")
             if len(usable) == 2:
                 break
         if not usable:
             raise ValueError(" ".join(warnings))
-        path, items = usable[0]
+        path, items, inactive = usable[0]
         if len(usable) == 2 and len(items) < SHRUNK * len(usable[1][1]):
             warnings.append(f"{path.name} was NOT used: it has {len(items)} items, the one before had "
                             f"{len(usable[1][1])}, so it looks cut off. Export again.")
-            path, items = usable[1]
-        catalogue = cls(items, _category_codes(powersoft_dir), _supplier_codes(powersoft_dir))
+            path, items, inactive = usable[1]
+        catalogue = cls(items, _category_codes(powersoft_dir), _supplier_codes(powersoft_dir), inactive)
         catalogue.export_name, catalogue.warnings = path.name, warnings
         return catalogue
 
@@ -123,7 +126,7 @@ class Catalogue:
 
     def add_local(self, item: Item) -> None:
         """Merge an item the tool created (D-018 point 4), unless the export already has it."""
-        if item.code in self.items:
+        if item.code in self.items or item.code in self.inactive:
             return
         item.local = True
         self.items[item.code] = item
@@ -134,8 +137,17 @@ class Catalogue:
         """Every brand in use, for the new-item form's list."""
         return sorted({i.brand for i in self.items.values() if i.brand})
 
+    def active_twin(self, code: str) -> str | None:
+        """The one active item with the same name as inactive item `code` (the same product under another
+        code: Coca-Cola 17 -> 5449000000439), or None."""
+        key = name_key(self.inactive.get(code, ""))
+        twins = [c for c, k in self.name_keys.items() if k == key and c in self.items] if key else []
+        return twins[0] if len(twins) == 1 else None
+
     def highest_numeric_code(self) -> int:
-        return max((int(c) for c in self.items if c.isdigit()), default=0)
+        """Inactive items count: PowerSoft still has their codes (D-031)."""
+        return max((int(c) for c in [*self.items, *self.inactive] if c.isdigit() and len(c) < CODE_DIGITS),
+                   default=0)
 
 
 @dataclass
@@ -175,8 +187,10 @@ def _take_in_latest(powersoft_dir: Path) -> None:
         old.unlink()
 
 
-def _read_export(path: Path) -> dict[str, Item]:
-    items = {}
+def _read_export(path: Path) -> tuple[dict[str, Item], dict[str, str]]:
+    """The active items, and the names of inactive ones by code. An export without the Active column (made
+    with PowerSoft's default 'active only' filter) has only active items."""
+    items, inactive = {}, {}
     # PowerSoft exports in cp1253 (Greek Windows). Row 2 is a sub-header ('Incl') and is skipped.
     with path.open(encoding="cp1253", newline="") as f:
         reader = csv.reader(f)
@@ -192,6 +206,9 @@ def _read_export(path: Path) -> dict[str, Item]:
             code = row[col["Item Code"]].strip()
             if not code or row[col["Item Description"]] == "":
                 continue
+            if "Active" in col and row[col["Active"]].strip().lower() == "no":
+                inactive[code] = row[col["Item Description"]].strip()
+                continue
             items[code] = Item(
                 code=code,
                 description=row[col["Item Description"]].strip(),
@@ -206,13 +223,12 @@ def _read_export(path: Path) -> dict[str, Item]:
             )
     if not items:
         raise ValueError("it has no items.")
-    return items
+    return items, inactive
 
 
 def _category_codes(powersoft_dir: Path) -> dict[str, str]:
-    ws = openpyxl.load_workbook(powersoft_dir / "categories.xlsx", read_only=True).active
     codes = {}
-    for row in ws.iter_rows(min_row=2, values_only=True):
+    for row in read_rows(powersoft_dir / "categories.xlsx"):
         name = next((v for v in row[1:4] if v), None)
         if name and row[5] is not None:
             codes[str(name).strip()] = str(row[5]).strip()
@@ -220,10 +236,9 @@ def _category_codes(powersoft_dir: Path) -> dict[str, str]:
 
 
 def _supplier_codes(powersoft_dir: Path) -> dict[str, str]:
-    ws = openpyxl.load_workbook(powersoft_dir / "suppliers.xlsx", read_only=True).active
     return {
         str(row[3]).strip(): str(row[0]).strip()
-        for row in ws.iter_rows(min_row=2, values_only=True)
+        for row in read_rows(powersoft_dir / "suppliers.xlsx")
         if row[0] and row[3]
     }
 

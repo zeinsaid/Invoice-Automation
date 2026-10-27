@@ -39,6 +39,7 @@ class InvoiceLine:
     pieces_known: bool = False  # True if the invoice printed the pack factor and quantity is already in pieces
     printed_factor: float | None = None  # a pack size the invoice prints but that needs the price to confirm it
     supplier_code: str = ""  # the supplier's own item code, a learning key that survives OCR noise in names
+    amount_incl_vat: float | None = None  # set when the invoice prints no VAT: the item's rate is applied later (D-030)
     flags: list[Flag] = field(default_factory=list)
     page: int = 0  # which page of the PDF the line is on
     row_index: int = -1  # position in that page's table, including non-item rows
@@ -67,3 +68,4 @@ class Invoice:
     pages: list[int]
     flags: list[Flag] = field(default_factory=list)  # invoice-wide flags
     page_angle: float = 0.0  # first page's rotation, degrees clockwise; 90 for a page scanned sideways
+    discount: float = 0.0  # a discount on the whole invoice the paper doesn't print (0.15); totals on the paper are before it

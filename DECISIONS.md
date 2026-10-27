@@ -35,6 +35,8 @@ Numbered record of design decisions: what was decided, why, and what else was co
 | D-027 | Handwriting on the paper is ignored when reading lines | Accepted |
 | D-028 | The old supplier lists' own barcodes become unconfirmed answers, once | Accepted |
 | D-029 | Two new layouts: Coca-Cola, and Agrotis' shop-counter invoice | Accepted |
+| D-030 | Asian Food Market's order invoice: VAT taken from each item, 15% discount the paper doesn't show | Accepted |
+| D-031 | Inactive items: one export with an Active column; never matched, codes stay taken | Accepted |
 
 ---
 
@@ -262,6 +264,8 @@ Only steps 1–2 are trusted automatically. Results from steps 3–4 are written
 
 **Amendment (2026-10-21): a Purchase order upload updates the cost.** Zein checked at the shop: uploading a file as a Purchase order changes each item's stored cost in PowerSoft. Until then, the tool sent any file with a cost change through Items import (with Modify ticked) as well, just in case (D-023 amendment). Now **Items import is only for files with new items**. Every file still goes in as a Purchase order, which brings in the stock and the new costs. Items import stays the way to change anything else about an item (name, brand, supplier, retail price), and the tool never changes those. *Why it matters:* one upload step fewer on most invoices, since cost changes are common and new items get rarer as the tool learns.
 
+**Amendment (2026-10-27): Items import without Modify.** Zein: with Modify ticked, PowerSoft refuses an item it doesn't have yet, so a file of new items has to go in without it (and a file mixing new items with changes to existing ones needs two uploads, first without Modify, then with it). The tool never changes existing items, so its files only ever need the first: without Modify, PowerSoft adds the new rows and skips the rest. The Done screen and the Staff guide now say "Modify NOT ticked". PowerSoft says straight away when an upload fails, so a wrong tick can't go unnoticed.
+
 ---
 
 ## D-009: Cost rules: per piece, before VAT, after discounts; free goods averaged in; price changes flagged and logged
@@ -397,6 +401,8 @@ No separate new-items file is needed.
 **Amendment (2026-10-15):** Asian Food Market is entered by hand for now; it is listed as "enter by hand" in the run. To be revisited and tested once everything else is done.
 
 When the tool recognises an out-of-scope supplier, it skips the page and says so in the report ("Aristidou: please enter by hand") instead of failing.
+
+**Amendment (2026-10-27):** Asian Food Market now sends a printed A4 order invoice with barcodes, which the tool reads (D-030). Their till receipt, if one still comes, stays "enter by hand".
 
 **Reasoning.** Each one adds a lot of complexity for very little volume. Excluding them keeps the core reliable.
 
@@ -674,6 +680,8 @@ The 11 VAT corrections were made by hand and verified in the second 2026-10-14 e
 - *Cassandra: a scan that cuts off the logo.* Such a page wasn't recognised and was listed as "enter by hand". Cassandra's VAT number, printed under the logo, now identifies it too.
 - *Each was checked on all 30 sample scans:* only these invoices changed, and each now adds up to its printed total.
 
+**Amendment (2026-10-27): Pambos, a description read into the row above.** On invoice IN2600006599 the scanner put GKSPOD11's barcode and name into GKSPOD9's description cell ("GB POD BANANA ICE 9 *10pcs 6979193577153 GB POD STRAWBERRY WATERMELON 11"), leaving GKSPOD11's row with only "*10pcs". With no barcode and no real name, staff picked the nearest pod, 1569 Strawberry Ice 24: 30 Watermelon 11 pods went into PowerSoft as Strawberry Ice, and that answer was learned under Pambos' code GKSPOD11. Quantities and costs were right (every pod line was 1 per unit). *Fix:* when a Pambos description holds a second barcode and the next line has none, that barcode and the words after it go back to the next line. Pambos lines are now also marked as counting single pieces, so a name saying "*10pcs" can never be multiplied (D-005 amendment). Zein deletes the learned GKSPOD11 -> 1569 row (D-026). The other Pambos samples read as before.
+
 ---
 
 ## D-022: Review window: staff answer questions from the paper and the shelf; the Excel is only written once an invoice is cleared
@@ -768,6 +776,8 @@ The 11 VAT corrections were made by hand and verified in the second 2026-10-14 e
 - *"Mark as uploaded" with the file open in Excel left a copy behind.* Python's move copied the file to `Uploaded`, then failed to delete the original (Excel locks it), and staff were told to close Excel and press again. Twice on 21 October that left two identical copies in `Uploaded` (nothing was uploaded twice). A plain rename is used instead: it either happens or fails cleanly. Both folders are on the same drive (D-024), so a rename is always possible.
 - *An invoice an automatic check sent to Zein goes back to staff by itself once an update fixes the cause.* At every start, each invoice on Zein's list that a check put there (not "I'm not sure") is read again; if it no longer needs Zein, it returns to staff. Admin mode also shows Zein's list first. *Why:* Pambos' unreadable VAT was fixed in code, but the invoice would have stayed on Zein's list, and pressing "Start this invoice again" made it a normal invoice that stood in front of everything else in admin mode, with 12 questions only the shelf can answer.
 - *The update downloaded the demo video.* GitHub's zip of the repository included `docs\` (the demo video and GIF), `tests\` and `scripts\`. `.gitattributes` now marks them `export-ignore`, so they stay on GitHub for visitors but are left out of the zip the shop PC downloads.
+
+**Amendment (2026-10-27): the learned table could be "open in Excel" with Excel closed.** The tool reads Excel files (the learned table, the code tables, the old supplier lists) in openpyxl's read-only mode, which keeps the file open until Python happens to clean up. On an invoice with no questions, the tool loads the learned table and saves it again within a second, and the save then failed with "supplier_items.xlsx is open in Excel". Found while testing D-030 on Zein's PC; at the shop the window's questions usually gave Python time to clean up first, which is why it hadn't shown. Every such file is now closed as soon as it is read (`files.read_rows`), and a test saves a table straight after reading it.
 
 ---
 
@@ -918,3 +928,56 @@ D:\Invoices\                          (Zein makes a desktop shortcut to this fol
 - *Strip Coca-Cola's codes ("SLK KC CYGR") from the descriptions to match names better.* Not done: barcodes (D-028) and Coca-Cola's own code do the matching after the first invoice, and staff see the description as printed.
 
 **Reasoning.** Same pattern as every other supplier (D-021): Document Intelligence reads the table, and a short profile says what each column means. Each new layout is about 80 lines of code plus a test, and the checks (line arithmetic, the invoice total) catch what a profile gets wrong.
+
+---
+
+## D-030: Asian Food Market's order invoice: VAT taken from each item, 15% discount the paper doesn't show
+
+**Status:** Accepted · 2026-10-27
+
+**Context.** Asian Food Market (Zheng Donischal Ltd) used to give a thermal till receipt with shortened names and no barcodes, so it was entered by hand (D-013). They now send a printed A4 order invoice: line number, barcode, name in English and Chinese, unit (bottle, bag), quantity, price, amount, and "TOTAL AMOUNT". Two things are not on the paper:
+- **VAT.** No rate per line and no VAT total. The prices include VAT (Zein: the 498.10 paid is with VAT). Soju is 19%, noodles 5%.
+- **A standing 15% discount** on every order, because we buy in bulk. The first invoice says 586; we paid 586 x 0.85 = 498.10.
+
+**Decision.**
+- New profile `suppliers/asian.py`, told from the till receipt by "ORDER NO" (the receipt doesn't print it). The receipt keeps its "enter by hand" message.
+- **VAT comes from the item.** A line from this profile carries its amount with VAT (`amount_incl_vat`). Before matching, the pipeline gives it the VAT rate of the item with that barcode in PowerSoft (or the learned item, or the most similar name), so the pack-size price check compares costs before VAT. Once the line's item is known (matched, or picked by staff), that item's rate is applied. Cost per piece = amount x 0.85 / (1 + VAT) / pieces.
+- **The discount is on the lines, not on the paper's total.** Each line's amount is reduced by 15%, so every cost includes it. The total check compares the lines *before* the discount with the printed total (586 against 586). If staff are asked to type the total, the paper's figure or the amount paid are both accepted.
+- The Chinese part of each name is dropped: it never matches our names, and it would end up in new items' names.
+- Numbers use a dot decimal, so a comma is read as a thousands separator ("1,586" = 1586). Dates are printed year first (2026-10-26); the shared date reader now accepts that.
+
+**Result on the first invoice.** All 8 barcodes are in PowerSoft; the invoice adds up and goes through with no questions. The soju cost comes out about 12% lower than PowerSoft's, which turned out to be the paper price less 15% but divided by 5% VAT instead of 19%: whoever entered it by hand used the food rate. PowerSoft has 19% on these items, which is right for alcohol, so the tool's cost is the right one.
+
+**Alternatives considered.**
+- *Put the 15% on the printed total too, and compare the lines with 498.10.* Rejected: staff asked to type the total would type what the paper says (586), and the check would fail.
+- *A fixed VAT rate for the whole supplier.* Rejected: they sell both food (5%) and alcohol (19%) on one invoice.
+- *Guess VAT from the name (soju, wine, beer = 19%).* Rejected: PowerSoft already holds each item's VAT, checked by hand in October (D-019).
+- *Ask staff for the VAT rate of each new item.* Not done for now. A new item takes the rate of the most similar item, and its row is red with a "check before uploading" comment (D-011). *Revisit* if a new Asian Food Market item gets the wrong VAT.
+
+**Reasoning.** The two things the paper leaves out are both known for certain elsewhere: the VAT in PowerSoft, the discount from Zein. Taking them from there, rather than asking staff, keeps the invoice at no questions, and the total check still proves every line was read.
+
+## D-031: Inactive items: one export with an Active column; never matched, codes stay taken
+
+**Status:** Accepted · 2026-10-27
+
+**Context.** PowerSoft's item export has a filter that defaults to active items only, so the tool never saw inactive items. Three problems showed up in one week:
+- **A code given out twice.** The manager made item 1691 by hand (a duplicate of 1629, GB POD STRAWBERRY WATERMELON 11, same barcode) and made it inactive. The tool's next new code was 1691, because it counts up from the highest code it can see (D-012). Items import without Modify would have skipped the new item, and the Purchase order would have put its stock on the inactive pod.
+- **Two items for one product.** Coca-Cola 1.5 L had an old inactive item whose code *is* the bottle's barcode (5449000000439). PowerSoft always keeps an item's code as one of its barcodes, so that barcode could never be moved to the item in use (17). Stock went in on 17, but every scan at the till sold the inactive item: sales reports showed it selling, and stock reports showed it negative, with no visible reason. Zein swapped them: 5449000000439 is now the active item, and 17 is inactive. Every learned Coca-Cola answer still pointed at 17.
+- **A barcode as a code.** The highest code in the export became 5449000000439, so the next new item would have been 5449000000440. The code can't be changed: PowerSoft would keep it as a barcode.
+
+**Decision.**
+- Zein exports active *and* inactive items in one file, with PowerSoft's **Active** column ticked. The column is optional: an export without it is read as before (all active).
+- Inactive items are **never matched** (not by barcode, name, or learned answer) and are left out of the pack check, but their codes **count for the next new code**.
+- **Codes of 7 digits or more are barcodes typed in as codes** and don't count for the next new code. Ours are 4 digits; the shortest barcode (EAN-8) is 8.
+- When the tool starts, a **learned answer on an inactive item moves to the one active item with exactly the same name** (17 -> 5449000000439: both "COCA COLA 1.5 LTR"), and Zein's report lists each move. If no item, or more than one, has that name, the answer stays and matching skips it: the line is asked again, once.
+
+**Result on the export of 2026-10-27.** 1,587 active and 23 inactive items. The next new code is 1692. Six Coca-Cola answers (Coca-Cola HBC and Athenites, including the Athenites 2 x 1.5 L pack) move to 5449000000439, so those lines still need no question. The other answers on inactive items are old-list names for products we no longer stock, which matching skips. Item 1961 (made by mistake) isn't in this export at all; it only matters once the codes reach it.
+
+**Alternatives considered.**
+- *A hand-kept list of codes in use (a text file).* Rejected once Zein found the Active column: the export already knows, and nothing has to be remembered.
+- *Two exports, active and inactive.* Rejected: one file, one step, and the cut-off check (D-023) still compares like with like.
+- *Move answers to the item with the same barcode.* Not possible here: 17's only barcode was its own code. The same name is what the two items share.
+- *Leave answers on inactive items and ask again.* Rejected for Coca-Cola: staff would be asked about Coca-Cola on every supplier, and might make a new item.
+
+**Reasoning.** PowerSoft is the source of truth for items (D-018), and an inactive item is still a PowerSoft item: its code is taken even if nobody sells it. Reading it, but never matching to it, gives both. The 23 extra rows cost nothing in speed.
+
