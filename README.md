@@ -53,7 +53,7 @@ The tool runs on the shop's Windows PC, which resets its C: drive at every resta
 
 ## How it was built
 
-I designed this project and made its decisions: what to automate and what to leave to staff, the matching order, how packs are detected, what gets asked and what doesn't. The code was written with [Claude Code](https://claude.com/claude-code), one reviewed step at a time. Every significant choice and its reasoning is in **[DECISIONS.md](DECISIONS.md)**: 29 decisions, from dropping an LLM step to the deployment design. The tool was tested on real invoices from every supplier it handles, and has been in use at the shop since October 2026.
+I designed this project and made every decision in it: what to automate and what to leave to staff, the matching order, how packs are detected, what gets asked and what doesn't. I built it using [Claude Code](https://claude.com/claude-code) as my AI coding assistant, reviewing every change step by step. Every significant choice and its reasoning is in **[DECISIONS.md](DECISIONS.md)**: 29 decisions, from dropping an LLM step to the deployment design. The tool was tested on real invoices from every supplier it handles, and has been in use at the shop since October 2026.
 
 ## Repository layout
 
