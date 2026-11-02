@@ -28,6 +28,9 @@ EXACT_TOLERANCE = 0.01  # within 1% of a whole number (costs are kept to 2 decim
 # A barcode match priced at this many times the known cost or more is a pack, not one piece.
 # Below it, the difference is a price change (or an old VAT-inclusive cost) and goes to the report.
 MULTIPACK_RATIO = 1.5
+# D-033: the last check on every line. Wider than the pack checks: a promotion on a cost entered with VAT
+# (0.62 against 0.99) is 0.63x, while real mistakes are multiples (24 cans as 24 cases is 24x).
+COST_CHECK_RATIO = 2.0
 
 
 @dataclass
@@ -206,6 +209,11 @@ def known_costs(code, line, supplier, invoice_no, catalogue, table) -> tuple[flo
     return _unit_price(line), _references(code, supplier, invoice_no, catalogue, table)
 
 
+def far_from(cost: float, costs: list[float], ratio: float = MULTIPACK_RATIO) -> bool:
+    """More than `ratio` times away, either way, from every known cost of one piece."""
+    return bool(costs) and cost > 0 and not any(1 / ratio < cost / ref < ratio for ref in costs)
+
+
 def pack_doubt(unit_price: float | None, costs: list[float], pieces: float) -> str | None:
     """A pack size staff typed that makes one piece cost far from every known cost (outside 1.5x, the
     same band a learned size is re-checked with) is very likely a slip: 24 typed for a line that already
@@ -213,7 +221,7 @@ def pack_doubt(unit_price: float | None, costs: list[float], pieces: float) -> s
     if not unit_price or not costs or not pieces:
         return None
     cost = unit_price / pieces
-    if any(1 / MULTIPACK_RATIO < cost / ref < MULTIPACK_RATIO for ref in costs):
+    if not far_from(cost, costs):
         return None
     return (f"With {pieces:g} pieces in 1 unit, one piece would cost {cost:.2f}, but we usually pay about "
             f"{costs[-1]:.2f}. Count again. If {pieces:g} is right, press OK again.")

@@ -143,7 +143,16 @@ class Session:
         self.ctx = Context.load()
 
     def answer(self, entry: Entry, question: Question, value) -> None:
-        entry.answers[question.id] = value
+        if question.kind == "cost" and value != "ok":
+            # D-033: "Wrong number of pieces" or "Wrong item" replaces that answer, and the line is checked
+            # again (if the cost is still far off, the question comes back).
+            row = question.data["row"]
+            entry.answers.pop(f"pack:{row}", None)
+            if isinstance(value, dict):
+                entry.answers.pop(f"item:{row}", None)
+            entry.answers[f"pack:{row}" if isinstance(value, int) else f"item:{row}"] = value
+        else:
+            entry.answers[question.id] = value
         if entry.status == ZEIN_LIST:
             entry.status = PENDING  # Zein answered: back to the normal flow
         save_queue(self.entries)

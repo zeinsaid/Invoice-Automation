@@ -1009,3 +1009,34 @@ D:\Invoices\                          (Zein makes a desktop shortcut to this fol
 - *Retry the invoice on every question in the same run.* Rejected: the same error each time, and a log full of copies.
 
 **Reasoning.** One bad invoice should cost one invoice, not the whole batch. Zein is in Dubai and staff work in batches about an hour a week, so a stuck queue could mean a week of invoices waiting. The pieces were already there: Zein's list for "needs Zein", the log for details, the automatic return once fixed. This puts errors on the same path.
+
+## D-033: Every line's cost is checked against what we pay; far off means a question
+
+**Status:** Accepted · 2026-11-02
+
+**Context.** The Monster mistake (D-020 amendment of 2026-11-02) showed a gap. The price checks only ran while the tool was working out a pack size. Lines that reached a cost another way were never checked:
+- staff picked the item themselves (a wrong pick is compared with nothing)
+- the pack size was typed by staff (before the amendment)
+- the invoice already counts single pieces (Cassandra, Pambos, Cosmos, …), so no pack check runs. That is how the Blends went in at 0.25 instead of 2.48.
+
+Zein: "No matter how wrong our prices are in the system, they're not going to be wrong by a couple orders of magnitude. If something jumps from 90 cents to 3 cents, there's clearly something wrong."
+
+**Decision.**
+- **The last check on every line**, once its item and pieces are settled: cost per piece = line amount before VAT ÷ pieces. It is compared with the two known costs, this supplier's last cost and PowerSoft's (D-020). If it is **more than 2x away from both, either way**, staff get "Is this cost right?" with the invoice line, our item, the pieces and both costs ("= 576 pieces, at 0.03 each. We usually pay 0.99."), and three buttons:
+  - **YES, it is right**: the cost is used and learned, so the same supplier's next invoice isn't asked again. Zein's report lists it under the invoice.
+  - **Wrong number of pieces**: staff type it, and it replaces the pack answer. Not offered on invoices that already count single pieces.
+  - **Wrong item**: the usual barcode or name search, or a new item; it replaces the item answer.
+
+  After a correction the line is checked again, so a second wrong answer is caught too.
+- **Free lines** (no amount) and new items made on this invoice aren't checked: there is nothing to compare with.
+- **Why 2x, not the 1.5x of the pack checks.** The first replay showed a real false alarm: Athenites' Monster with a one-third promotion (0.62 a can), against a PowerSoft cost that was entered with VAT (0.99). That is 0.63x, a genuine price. Real mistakes come in multiples: 24 cans read as cases is 24x, the Blends were 10x, a 3-pack read as one is 3x. 2x keeps those and lets ordinary price noise (promotions, VAT-inclusive costs) through. The pack checks keep 1.5x, because there the price itself is what decides the size.
+- **Also fixed:** a staff answer pointing at an item that has since been made inactive (a new export) is asked again instead of failing (found while replaying invoice 1000752311, where staff had picked Coca-Cola 17).
+
+**Result on the shop's invoices so far** (replayed with staff's answers and today's costs): one question in 16 invoices, and it is the Monster line. At the time, a few others would also have been asked once: the croissant (2.48 → 0.75, PowerSoft held the wrong cost) and the Faber-Castell leads (1.05 → 0.48).
+
+**Alternatives considered.**
+- *Only check against PowerSoft's cost.* Rejected: the export is monthly, so a genuine price change staff confirmed would be asked on every invoice until the next export. With two references, one confirmation is enough.
+- *Block the Excel until Zein looks.* Rejected: it is usually a staff slip that staff can fix at once from the paper and the shelf, and Zein is in Dubai.
+- *A tighter band (1.5x).* Rejected after the replay: it asks about promotions, and a question that is usually "yes" teaches staff to press yes without looking.
+
+**Reasoning.** The pack-size checks guard one way into a wrong cost; this guards the result, whatever the way in. It uses numbers the tool already has, and it costs nothing on a normal invoice: only one line in the shop's first 16 invoices would have been asked. A known limit: a wrong learned cost (like the 0.026 left by the Monster answer) counts as a reference, so such a row must still be deleted (Admin.bat 5). The monthly check (D-026) lists costs that are far from PowerSoft's.

@@ -96,3 +96,43 @@ def test_total_check_takes_the_unprinted_discount_into_account():
         ev.entry.answers["total"] = typed
         pipeline._check_total(ev)
         assert ev.questions == [] and ev.outcome == "questions"
+
+
+# --- A cost far from what we pay is asked about (D-033) ---------------------------------------------
+
+def _monster(tmp_path, answers, pieces_known=False):
+    from invoice_automation.supplier_items import SupplierItems
+    can = Item("1625", "MONSTER ZERO CAN 500ML", "5000000000001", 19, 0.99, 1.9, "S", "", "", True)
+    ctx = pipeline.Context(Catalogue({"1625": can}, {}, {}), SupplierItems([], tmp_path / "t.xlsx"), {})
+    line = InvoiceLine("49", "MONSTER LANDO NORRIS 500ML", "5000000000001", 24, 19.97, 19, 0.83,
+                       pieces_known=pieces_known)
+    line.page, line.row_index = 0, 48
+    inv = Invoice("S", "Test", "INV1", None, [line], 23.76, 23.76, "x.pdf", [0])
+    answers = {"item:0:48": {"code": "1625"}, **answers}  # staff picked the item, as on the real invoice
+    ev = Evaluation(Entry("x.pdf", [0], "", answers=answers), invoice=inv, answer_keys={line.key: line.key})
+    return pipeline._line(line, inv, ev, ctx), ev
+
+
+def test_cost_far_from_what_we_pay_is_asked(tmp_path):
+    # 24 single cans typed as 24 per unit: 576 cans at 0.03 instead of 0.99.
+    q, _ = _monster(tmp_path, {"pack:0:48": 24})
+    assert q.kind == "cost" and q.id == "cost:0:48" and round(q.data["cost"], 3) == 0.035
+    q, _ = _monster(tmp_path, {"pack:0:48": 1})
+    assert q is None
+
+
+def test_cost_confirmed_by_staff_goes_through_and_is_reported(tmp_path):
+    q, ev = _monster(tmp_path, {"pack:0:48": 24, "cost:0:48": "ok"})
+    assert q is None and "confirmed (usually 0.99)" in ev.cost_confirmed[0]
+
+
+def test_wrong_pieces_from_the_cost_question_replaces_the_pack_answer(monkeypatch):
+    from invoice_automation import session as sm
+    monkeypatch.setattr(sm, "save_queue", lambda entries: None)
+    s = sm.Session(ctx=None, entries=[])
+    entry = Entry("x.pdf", [0], "", answers={"pack:0:48": 24})
+    q = pipeline.Question("cost:0:48", "cost", "Is this cost right?", data={"row": "0:48"})
+    s.answer(entry, q, 1)
+    assert entry.answers == {"pack:0:48": 1}
+    s.answer(entry, q, {"code": "86"})  # wrong item: the item answer is replaced, the pieces asked again
+    assert entry.answers == {"item:0:48": {"code": "86"}}

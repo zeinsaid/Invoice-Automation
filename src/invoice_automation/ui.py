@@ -297,6 +297,26 @@ class App:
         self.button(row, "OK", ok, GREEN)
         error = self.label(area, "", 12, color=RED_BG)
 
+    def ask_cost(self, area, entry, ev, q):
+        # D-033: the cost per piece is far from what we pay. Wrong pieces or a wrong item are the usual reasons.
+        line, d = q.line, q.data
+        self.label(area, f"Invoice:   {fmt(line.quantity)}  x  {line.description}", 15)
+        self.label(area, f"Our item:  {d['description']}   (code {d['code']})", 15)
+        self.label(area, f"= {fmt(d['pieces'])} pieces, at {d['cost']:.2f} each.   We usually pay {d['usual']:.2f}.",
+                   18, True, pady=(8, 8))
+        row = tk.Frame(area, bg="white")
+        row.pack(anchor="w")
+        self.button(row, "YES, it is right", lambda: self.answer("ok"), GREEN)
+
+        def other(show):
+            row.destroy()
+            show()
+
+        if not d["pieces_known"]:  # these invoices count single pieces already: no pieces to fix
+            self.button(row, "Wrong number of pieces", lambda: other(lambda: self._pieces(area, q)), RED_BG)
+        self.button(row, "Wrong item", lambda: other(lambda: self._identify(area, entry, ev, q, allow_new=True)),
+                    RED_BG)
+
     def ask_item(self, area, entry, ev, q):
         # Words that differ are red, so 'A2' vs 'A3' or 'Black' vs 'Blue' can't be missed.
         self._compare(area, "Invoice says:", q.line.description, q.data["description"])

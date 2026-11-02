@@ -25,7 +25,7 @@ import pymupdf
 from . import suppliers
 from .catalogue import Catalogue, Item, name_key
 from .extract import analyze_page
-from .matching import Match, known_costs, match_line, similar_names, suggest_pack, usable_barcode
+from .matching import COST_CHECK_RATIO, Match, far_from, known_costs, match_line, similar_names, suggest_pack, usable_barcode
 from .model import MATCH, ORANGE, PACK, RED, UNREADABLE, ZEIN, Flag, Invoice, InvoiceLine
 from .files import save_atomic
 from .output import OutputRow, write_invoice_excel
@@ -142,7 +142,7 @@ def split(entries: list[Entry]) -> list[Entry]:
 @dataclass
 class Question:
     id: str  # where the answer is stored in Entry.answers
-    kind: str  # pack, item, identify, not_storable, new_item, fix_line, number, total, duplicate, zein
+    kind: str  # pack, item, identify, not_storable, new_item, fix_line, cost, number, total, duplicate, zein
     title: str  # the big line on screen
     detail: str = ""  # a smaller line of explanation
     line: InvoiceLine | None = None
@@ -160,6 +160,7 @@ class Evaluation:
     labels: dict[str, str] = field(default_factory=dict)  # the supplier's printed column names (fix_line)
     answer_keys: dict[str, str] = field(default_factory=dict)  # line key -> key its item/pack answers live under
     skipped: list[InvoiceLine] = field(default_factory=list)  # not for the shop (D-025)
+    cost_confirmed: list[str] = field(default_factory=list)  # far-off costs staff said are right (D-033)
 
 
 @dataclass
@@ -306,6 +307,8 @@ def _line(line: InvoiceLine, inv: Invoice, ev: Evaluation, ctx: Context) -> Ques
                         next(f.message for f in line.flags if f.kind == UNREADABLE), line, {"labels": ev.labels})
 
     item_answer = a.get(f"item:{row}")
+    if isinstance(item_answer, dict) and item_answer.get("code") not in (None, *ctx.catalogue.items):
+        item_answer = None  # the item was made inactive since (a new export): asked again
     if isinstance(item_answer, dict) and "code" in item_answer:
         m = Match(item_answer["code"], None, "staff")
         _item_vat(line, m.item_code, ctx)
@@ -349,7 +352,30 @@ def _line(line: InvoiceLine, inv: Invoice, ev: Evaluation, ctx: Context) -> Ques
             return Question(f"pack:{row}", "pack", "How many pieces in 1 unit?", pack.message, line,
                             {"suggested": pack.data.get("suggested"), "description": item.description,
                              "unit_price": unit_price, "costs": costs})
-    return None
+    return _cost_check(line, m, row, inv, ev, ctx)
+
+
+def _cost_check(line: InvoiceLine, m: Match, row: str, inv: Invoice, ev: Evaluation, ctx: Context) -> Question | None:
+    """D-033: the last check on a line, whatever way its item and pieces were found. A cost per piece far
+    from every known cost (the Monster can at 0.03 instead of 0.99) is a wrong item or a wrong number of
+    pieces, so staff are asked. "It is right" is remembered on this invoice, and the cost is learned."""
+    pieces = line.quantity * (m.pack_factor or 1)
+    if pieces <= 0 or line.amount_excl_vat <= 0:  # free goods: nothing to compare
+        return None
+    cost = line.amount_excl_vat / pieces
+    _, costs = known_costs(m.item_code, line, inv.supplier, inv.number, ctx.catalogue, ctx.table)
+    if not far_from(cost, costs, COST_CHECK_RATIO):
+        return None
+    usual = costs[-1]  # PowerSoft's when there is one
+    if ev.entry.answers.get(f"cost:{row}") == "ok":
+        ev.cost_confirmed.append(f"Line {line.line_no} '{line.description}': cost {cost:.3f} per piece confirmed "
+                                 f"(usually {usual:.2f})")
+        return None
+    item = ctx.catalogue.items[m.item_code]
+    return Question(f"cost:{row}", "cost", "Is this cost right?",
+                    f"One piece would cost {cost:.2f}, but we usually pay about {usual:.2f}.", line,
+                    {"row": row, "code": item.code, "description": item.description, "pieces": pieces, "cost": cost,
+                     "usual": usual, "pieces_known": line.pieces_known, "candidates": m.candidates})
 
 
 def _check_total(ev: Evaluation) -> None:
@@ -480,6 +506,7 @@ def _finalize(ev: Evaluation, ctx: Context, output_file: Path) -> Result:
         row.invoice_lines.append(line.line_no)
         amounts[item.code] = amounts.get(item.code, 0.0) + line.amount_excl_vat
 
+    confirmed += ev.cost_confirmed
     rows = list(result_rows.values())
     changes = []
     for row in rows:
