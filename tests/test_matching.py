@@ -211,3 +211,21 @@ def test_learned_pack_size_never_multiplies_an_invoice_that_counts_pieces():
     line = InvoiceLine("1", "BLENDS GREEN CLASSICS", "5290415441078", 10, 20.0, 19, 2.0, pieces_known=True)
     m = match_line(line, "Cassandra", "2", cat, table)
     assert (m.item_code, m.pack_factor) == ("1638", 1)
+
+
+# --- A line priced like one piece (D-020 amendment, 2026-11-02) -------------------------------------
+
+def test_price_of_about_one_piece_suggests_one(tmp_path):
+    # Athenites sold 24 single Monster cans at 0.83 each against a cost of 0.99. With no suggestion, staff
+    # typed 24 (the box on the shelf) and 24 cans went in as 576.
+    m = match(line("FIZZ CAN 330ML", "9999999999994", 24, 0.42), tmp_path)  # 0.84x one can
+    assert (m.item_code, m.pack_factor) == ("1", 1)
+    assert m.flags[0].data["suggested"] == 1 and m.flags[0].level == YELLOW
+
+
+def test_typed_pack_size_far_from_the_price_is_questioned():
+    from invoice_automation.matching import pack_doubt
+    assert pack_doubt(0.83, [0.99], 1) is None
+    assert "one piece would cost 0.03" in pack_doubt(0.83, [0.99], 24)
+    assert pack_doubt(12.00, [0.70, 0.50], 24) is None  # fits one of the known costs
+    assert pack_doubt(12.00, [], 24) is None  # nothing to compare with

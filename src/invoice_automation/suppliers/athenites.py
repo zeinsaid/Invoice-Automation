@@ -77,6 +77,11 @@ def row_to_line(row) -> InvoiceLine | None:
     amount = parse_number(row["amount"].text)  # incl. VAT, after the line discount
     if qty is None and amount is None:
         return None
+    if qty is None and not row["vat"].text.strip() and not re.search(r"\d{8}", row["barcode"].text):
+        # On a one-page invoice the totals ('Total (VAT) Included', 'VAT', 'VAT Analysis') are rows of the
+        # item table: no quantity, no VAT letter, no barcode. An item misread without its quantity
+        # still has its barcode, so it is kept and asked about (invoices 1000754750/1).
+        return None
     flags = []
 
     letter = row["vat"].text.strip().upper()

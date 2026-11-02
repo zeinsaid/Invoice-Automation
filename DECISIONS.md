@@ -636,6 +636,12 @@ The 11 VAT corrections were made by hand and verified in the second 2026-10-14 e
 - *Which size is suggested.* Within 10% of 1 piece: 1, no question. Within **1%** of a whole number: that number (13.0x is 13). Otherwise a normal size (3, 4, 6, 9, 12, 24) within 10% (25.5x suggests 24, not 26). Otherwise the nearest whole number in red, or no suggestion. The 1% band allows for PowerSoft keeping costs to 2 decimals (about 0.6% rounding). Every suggestion is still a question: staff count the box.
 - *Learned sizes are checked by price too* (Zein: "anything that can be checked should be checked"). If the price no longer fits the learned size against either known cost (outside 1.5x either way: the supplier changed the box from 24 to 12, or the first answer was wrong), the question comes back with "Last time 1 unit was 24 pieces, but the price has changed a lot", and the new answer replaces the old one.
 
+**Amendment (2026-11-02): a line priced like one piece suggests 1, and a typed size is checked against the price.** On invoice 1000754300, Athenites sold 24 single cans of Monster Lando Norris at 0.99 each (0.83 before VAT). Staff matched it to MONSTER ZERO CAN 500ML, whose PowerSoft cost is 0.99. The price was 0.84x one can: not within 10% of 1, and nowhere near a pack size, so the question came with no suggestion, only an empty "How many pieces in 1 unit?" box. Staff thought of the box of 24 on the shelf and typed 24, so 24 cans went in as 576 at 0.026 each. Staff caught it and fixed the Excel by hand, but the wrong answer was learned with a "last cost" of 0.026. Against that cost, 24 per unit looks right, so the re-check would have let it through again.
+- *A price of up to 1.5x one piece suggests 1* ("1 unit = 1 piece? (24 units = 24 pieces)", YES/NO), yellow. Below 0.9x it is an old or VAT-inclusive cost, not a fraction of a piece. Between 1.1x and 1.5x it is still more likely a price change than a pack of 2. It is still a question: staff can press NO.
+- *A typed size is checked against the price.* If it makes one piece cost more than 1.5x away from both known costs (the same band as the re-check of learned sizes), staff see "With 24 pieces in 1 unit, one piece would cost 0.03, but we usually pay about 0.99. Count again. If 24 is right, press OK again." Pressing OK again with the same number keeps it, because PowerSoft's cost is sometimes wrong (the Heineken can, D-020 rehearsal).
+- *Alternatives considered.* Refuse a size the price doesn't support: rejected, because then a wrong PowerSoft cost would block staff with no way forward. Show the unit price on every pack question: it adds a number staff would have to compare in their heads; the check does the sum for them, and only speaks up when the answer looks wrong.
+- *Reasoning.* The mistake was reasonable: the question asked about a "unit" while the shelf shows a box. A suggestion of 1 turns the question into a yes/no on the right answer, and the price check catches the slip when staff type anyway. Both use numbers the tool already has.
+
 ---
 
 ## D-021: Use `prebuilt-layout` only; the supplier profile interprets the table
@@ -981,3 +987,25 @@ D:\Invoices\                          (Zein makes a desktop shortcut to this fol
 
 **Reasoning.** PowerSoft is the source of truth for items (D-018), and an inactive item is still a PowerSoft item: its code is taken even if nobody sells it. Reading it, but never matching to it, gives both. The 23 extra rows cost nothing in speed.
 
+
+## D-032: An invoice the tool fails on waits for Zein; the others carry on
+
+**Status:** Accepted · 2026-11-02
+
+**Context.** Until now, an unexpected error while working out an invoice (a bug, or a layout the code didn't expect) reached the window's last-resort handler: staff saw "Something went wrong. Please contact Zein." and the window closed. The invoice was still waiting in the queue, first in line, so the next run hit the same error at once. Every invoice behind it was stuck until Zein fixed the code from Dubai. Reading the scans had the same problem: one page Azure couldn't read stopped the whole run.
+
+**Decision.**
+- **One invoice at a time.** An error while evaluating or finishing an invoice is caught for that invoice only. The details (full traceback, time, which invoice) go to `logs\error.log`. The invoice goes on Zein's list with the note "The tool hit an error on this invoice (details in logs\error.log)." The run carries on with the next invoice. Staff see the invoice under "Waiting for Zein (do not upload)", as for any other reason.
+- **It comes back by itself.** The note counts as an automatic check, like an unreadable VAT code. When the tool starts after an update, it tries the invoice again. If it now works, the invoice goes back to staff (cfca3ca). In one run an invoice is tried once, so the log gets one entry per run, not one per question.
+- **Nothing half-done reaches the next invoice.** After an error, the learned table and the catalogue are read again from disk.
+- **A half-finished Excel is taken back.** Finishing an invoice writes several files. If it stops half-way, the Excel is deleted from "Ready to upload" and taken off the upload list, so staff can't upload an invoice that is on Zein's list. Everything else is safe to write twice: learned rows and price changes are replaced, and a new item keeps the code it was given the first time (matched by supplier, invoice, barcode and name). This also stops an Excel made again for a lost file from making a second item. The "already done" record is written last, so the second try isn't taken for a duplicate.
+- **The window too.** If showing an invoice's question fails, that invoice is parked the same way and the next question is shown.
+- **Scans that can't be read.** A page Azure can't read is skipped; the other scans go ahead. A new scan that can't be read stays as it is, is listed under "Waiting for Zein" for this run, and is tried again next run. If *no* page can be read, it is almost certainly the internet or Azure (or the trial running out), so staff see "The invoices could not be read. Check that the internet works, then press Process Invoices again", rather than every invoice being sent to Zein.
+- **Unchanged:** a file open in Excel still stops with the "Close Excel" message (staff can fix that themselves, and nothing was saved). "Something went wrong. Please contact Zein." now only appears when the tool can't start, or when even parking the invoice fails.
+
+**Alternatives considered.**
+- *Skip the broken invoice silently and retry next time.* Rejected: nobody would know it was stuck, and it could sit there for weeks.
+- *Mark it "enter by hand".* Rejected: most errors are bugs Claude can fix in one update, after which the invoice goes through on its own. Entering it by hand throws that away and costs staff time.
+- *Retry the invoice on every question in the same run.* Rejected: the same error each time, and a log full of copies.
+
+**Reasoning.** One bad invoice should cost one invoice, not the whole batch. Zein is in Dubai and staff work in batches about an hour a week, so a stuck queue could mean a week of invoices waiting. The pieces were already there: Zein's list for "needs Zein", the log for details, the automatic return once fixed. This puts errors on the same path.

@@ -201,6 +201,24 @@ def _ratios(code, line, supplier, invoice_no, catalogue, table) -> list[float]:
     return [unit_price / ref for ref in refs] if unit_price else []
 
 
+def known_costs(code, line, supplier, invoice_no, catalogue, table) -> tuple[float | None, list[float]]:
+    """(invoice price of one unit, known costs of one piece), both before VAT, for checking a typed pack size."""
+    return _unit_price(line), _references(code, supplier, invoice_no, catalogue, table)
+
+
+def pack_doubt(unit_price: float | None, costs: list[float], pieces: float) -> str | None:
+    """A pack size staff typed that makes one piece cost far from every known cost (outside 1.5x, the
+    same band a learned size is re-checked with) is very likely a slip: 24 typed for a line that already
+    counts single cans. Staff are told what it would mean and can still keep it (D-020 amendment)."""
+    if not unit_price or not costs or not pieces:
+        return None
+    cost = unit_price / pieces
+    if any(1 / MULTIPACK_RATIO < cost / ref < MULTIPACK_RATIO for ref in costs):
+        return None
+    return (f"With {pieces:g} pieces in 1 unit, one piece would cost {cost:.2f}, but we usually pay about "
+            f"{costs[-1]:.2f}. Count again. If {pieces:g} is right, press OK again.")
+
+
 def _near(ratio: float, size: float) -> bool:
     return abs(ratio - size) <= PACK_TOLERANCE * size
 
@@ -274,7 +292,13 @@ def suggest_pack(m: Match, line: InvoiceLine, supplier, invoice_no, catalogue, t
         return
     ratio = best[0] if best else ratios[0]
     nearest = max(1, round(ratio))
-    if _near(ratio, nearest):
+    if nearest == 1:
+        # Priced like one piece, or less (an old or VAT-inclusive cost): suggest 1. An empty box invited
+        # "24" for Athenites' single Monster cans, because the box on the shelf holds 24 (D-020 amendment).
+        m.pack_factor = 1
+        m.flags.append(Flag(YELLOW, "quantity", f"The price is about one piece ({ratio:.2f}x), so 1 unit looks "
+                                                "like 1 piece.", PACK, {"suggested": 1}))
+    elif _near(ratio, nearest):
         m.pack_factor = nearest
         m.flags.append(Flag(RED, "quantity", f"Possibly a pack of {nearest} (price is {ratio:.1f}x one piece), "
                                              "an unusual size.", PACK, {"suggested": nearest}))

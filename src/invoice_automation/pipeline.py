@@ -25,7 +25,7 @@ import pymupdf
 from . import suppliers
 from .catalogue import Catalogue, Item, name_key
 from .extract import analyze_page
-from .matching import Match, match_line, similar_names, suggest_pack, usable_barcode
+from .matching import Match, known_costs, match_line, similar_names, suggest_pack, usable_barcode
 from .model import MATCH, ORANGE, PACK, RED, UNREADABLE, ZEIN, Flag, Invoice, InvoiceLine
 from .files import save_atomic
 from .output import OutputRow, write_invoice_excel
@@ -345,8 +345,10 @@ def _line(line: InvoiceLine, inv: Invoice, ev: Evaluation, ctx: Context) -> Ques
     else:
         pack = next((f for f in m.flags if f.kind == PACK), None)
         if pack:
+            unit_price, costs = known_costs(item.code, line, inv.supplier, inv.number, ctx.catalogue, ctx.table)
             return Question(f"pack:{row}", "pack", "How many pieces in 1 unit?", pack.message, line,
-                            {"suggested": pack.data.get("suggested"), "description": item.description})
+                            {"suggested": pack.data.get("suggested"), "description": item.description,
+                             "unit_price": unit_price, "costs": costs})
     return None
 
 
@@ -419,12 +421,35 @@ class Result:
 
 
 def finalize(ev: Evaluation, ctx: Context) -> Result:
+    """Write the Excel and save what was learned. If it stops half-way (an error, D-032), the Excel is
+    taken back out of 'Ready to upload', so staff can't upload an invoice that is on Zein's list. What
+    was already saved is safe to save again: the learned rows and price changes are replaced, a new
+    item keeps the code it was given, and the invoice only counts as done once everything is saved."""
     inv = ev.invoice
-    a = ev.entry.answers
     name = f"{inv.short_name} {inv.number}" + (f" {inv.date:%Y-%m-%d}" if inv.date else "")
     output_file = READY_DIR / f"{name}.xlsx"
     # All or nothing: if a file is open in Excel, stop before any code is issued or anything is written.
     _check_writable([output_file, ctx.table.path, NEW_ITEMS, PROCESSED, PRICE_CHANGES])
+    try:
+        return _finalize(ev, ctx, output_file)
+    except Exception:
+        _take_back(output_file)
+        raise
+
+
+def _take_back(output_file: Path) -> None:
+    try:
+        output_file.unlink(missing_ok=True)
+        waiting = _load_to_upload()
+        if waiting.pop(output_file.name, None) is not None:
+            _save_to_upload(waiting)
+    except Exception:  # noqa: BLE001 - the error that got us here is the one worth reporting
+        pass
+
+
+def _finalize(ev: Evaluation, ctx: Context, output_file: Path) -> Result:
+    inv = ev.invoice
+    a = ev.entry.answers
     result_rows: dict[str, OutputRow] = {}
     amounts: dict[str, float] = {}
     confirmed = []
@@ -470,16 +495,17 @@ def finalize(ev: Evaluation, ctx: Context) -> Result:
     _learn(ev, ctx)
     write_invoice_excel(output_file, rows, ctx.catalogue, inv.supplier)
     ctx.table.save()
-    _record_processed(inv, output_file)
     _record_price_changes(inv, changes)
-    ev.entry.status = DONE
-    ev.entry.output = output_file.name
     skipped = [f"Line {line.line_no} '{line.description}', {line.amount_excl_vat * (1 + line.vat_rate / 100):.2f} "
                "incl. VAT" for line in ev.skipped]
     result = Result(inv, rows, output_file, changes, confirmed, skipped)
     waiting = _load_to_upload()
     waiting[output_file.name] = {"items_import": result.items_import, "made": str(date.today())}
     _save_to_upload(waiting)
+    # Last: once it is recorded, running the invoice again asks "already done" (D-018).
+    _record_processed(inv, output_file)
+    ev.entry.status = DONE
+    ev.entry.output = output_file.name
     return result
 
 
@@ -599,6 +625,12 @@ def _issue_new_item(lines: list[InvoiceLine], inv: Invoice, form: dict, pieces_p
     if NEW_ITEMS.exists():
         with NEW_ITEMS.open(encoding="utf-8", newline="") as f:
             existing = list(csv.DictReader(f))
+    for r in existing:
+        # Given a code by this invoice before (a finalize that stopped half-way, or an Excel made again):
+        # the same code, never a second item for one product.
+        if (r["supplier"], r["invoice"], r["barcode"], r["description"]) == (
+                inv.supplier, inv.number, form["barcode"], form["description"]) and r["code"] in catalogue.items:
+            return catalogue.items[r["code"]]
     code = str(max([catalogue.highest_numeric_code()] + [int(r["code"]) for r in existing]) + 1)
     pieces = sum(line.quantity for line in lines) * pieces_per_unit
     amount = sum(line.amount_excl_vat for line in lines)

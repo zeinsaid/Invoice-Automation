@@ -57,5 +57,23 @@ def test_continuation_page_with_seven_columns_and_totals():
     assert not lines[0].flags
 
 
+def test_one_page_invoice_with_totals_in_the_item_table():
+    """A short invoice prints its totals inside the item table (invoices 1000754750/1). Before, the
+    'Total (VAT) Included' row was read as a line with no VAT letter and the invoice went to Zein."""
+    header = ["A/A", "Description", "Barcode", "Quantity", "Unit Selling Price", "Discount Amount",
+              "Amount Incl. VAT", "VAT"]
+    rows = [header,
+            ["1", "FIZZ PEACH 500ML", "4000000000006", "24.00", "0.95", "0.00", "22.80", "B"],
+            ["", "", "Total (VAT) Included:", "", "", "0.00", "22.80", ""],
+            ["", "", "VAT", "", "", "", "1.09", ""],
+            ["", "VAT Analysis", "NET-TOT VAT 5% (B)", "", "21.71 VAT 5%", "", "1.09", ""]]
+    cells = [_cell(r, c, t) for r, row in enumerate(rows) for c, t in enumerate(row)]
+    result = {"content": "Total (VAT) Included:\n0.00\n22.80", "pages": [{"words": [], "angle": 0.0}],
+              "tables": [{"rowCount": len(rows), "columnCount": 8, "cells": cells}]}
+    inv = athenites.parse(result, "x.pdf", 0)
+    assert [(l.description, l.quantity, l.flags) for l in inv.lines] == [("FIZZ PEACH 500ML", 24.0, [])]
+    assert inv.printed_total == inv.computed_total == 22.80
+
+
 def test_vat_letter_a_is_zero():
     assert athenites.VAT_LETTERS["A"] == 0

@@ -6,8 +6,7 @@ All decisions live in session.py / pipeline.py; this file only draws screens and
 import os
 import threading
 import tkinter as tk
-import traceback
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from tkinter import messagebox, ttk
 
@@ -18,11 +17,11 @@ from .catalogue import name_key
 from .crops import crop
 from .extract import analyze_page
 from .layout import ean_is_valid, parse_number
+from .matching import pack_doubt
 from .pipeline import (MANUAL, NEW, PENDING, READY_DIR, RESCAN, SKIPPED, ZEIN_LIST, mark_uploaded,
                        search_items, suggested_category, waiting_uploads)
-from .session import Session, _where
+from .session import Session, _where, log_error
 
-LOG = Path("logs/error.log")
 FONT = "Segoe UI"
 GREEN, RED_BG, GREY = "#2e7d32", "#c62828", "#555555"
 IMAGE_WIDTH = 940
@@ -49,6 +48,7 @@ class App:
         self.body.pack(fill="both", expand=True)
         self.photos = []  # keep image references alive
         self.current = None
+        self.reported = False
         self.show_message("Reading invoices...", "Please wait. This can take a minute.")
         # Reading new scans calls Azure and can take a while, so it runs in the background. Only the
         # main thread may touch the window, so the reader just leaves its progress here to be polled.
@@ -66,9 +66,15 @@ class App:
             if pdfs:
                 self.session.add(pdfs, move)
             todo = [(e.file, p) for e in self.session.entries if e.status in (NEW, PENDING) for p in e.pages]
+            errors = []
             for i, (file, page) in enumerate(todo, 1):
                 self._progress = f"Page {i} of {len(todo)}"
-                analyze_page(Path(file), page, "prebuilt-layout")  # cached after the first time
+                try:
+                    analyze_page(Path(file), page, "prebuilt-layout")  # cached after the first time
+                except Exception as e:  # noqa: BLE001 - that scan waits; the others go ahead (D-032)
+                    errors.append(e)
+            if todo and len(errors) == len(todo):
+                self._read_error = UnreadableError(errors[0])  # nothing could be read: Azure or the internet
         except Exception as e:  # noqa: BLE001 - every failure becomes "contact Zein"
             self._read_error = e
         self._read_done = True
@@ -88,6 +94,7 @@ class App:
     def next(self):
         nxt = self.session.next_question()
         if nxt is None:
+            self.current = None
             self.show_done()
         else:
             self.current = nxt
@@ -255,25 +262,32 @@ class App:
         self.label(area, f"Invoice:   {fmt(line.quantity)}  x  {line.description}", 15)
         self.label(area, f"Our item:  {q.data['description']}", 15, pady=(0, 8))
         if n:
-            self.label(area, f"1 unit = {n} pieces?      ({fmt(line.quantity)} units = {fmt(line.quantity * n)} pieces)",
+            each = "piece" if n == 1 else "pieces"
+            self.label(area, f"1 unit = {n} {each}?      ({fmt(line.quantity)} units = {fmt(line.quantity * n)} pieces)",
                        18, True)
             row = tk.Frame(area, bg="white")
             row.pack(anchor="w", pady=8)
             self.button(row, "YES", lambda: self.answer(n), GREEN)
-            self.button(row, "NO", lambda: (row.destroy(), self._pieces(area)), RED_BG)
+            self.button(row, "NO", lambda: (row.destroy(), self._pieces(area, q)), RED_BG)
         else:
-            self._pieces(area)
+            self._pieces(area, q)
 
-    def _pieces(self, area):
+    def _pieces(self, area, q):
         self.label(area, "How many pieces are in 1 unit? (Count them on the box or the shelf.)", 15, pady=(8, 4))
         row = tk.Frame(area, bg="white")
         row.pack(anchor="w")
         error = None
+        warned = []  # a number the price check doubted: pressing OK again with it keeps it
 
         def ok():
             value = parse_number(box.get())
             if value is None or not value.is_integer() or not 1 <= value <= 500:
                 error.config(text="Type a whole number, e.g. 6, 12 or 24.")
+                return
+            doubt = pack_doubt(q.data.get("unit_price"), q.data.get("costs") or [], value)
+            if doubt and value not in warned:
+                warned.append(value)
+                error.config(text=doubt)
                 return
             self.answer(int(value))
 
@@ -588,6 +602,7 @@ class App:
 
     def show_done(self):
         self.session.write_report()
+        self.reported = True  # closing the Done screen doesn't write the same report again
         self.render_done()
 
     def render_done(self):
@@ -679,19 +694,41 @@ class App:
         if self.current and not messagebox.askyesno(
                 "Stop?", "Stop now?\n\nYour answers are saved. The other questions will come back next time."):
             return
-        self.session.write_report()
+        if not self.reported:
+            self.session.write_report()
         self.root.destroy()
 
     def fail(self, error: BaseException):
-        LOG.parent.mkdir(parents=True, exist_ok=True)
-        with LOG.open("a", encoding="utf-8") as f:
-            f.write(f"\n--- {datetime.now().isoformat(timespec='seconds')}\n")
-            f.write("".join(traceback.format_exception(error)))
         if isinstance(error, PermissionError):  # a file open in Excel: staff can fix that themselves
+            log_error(error)
             messagebox.showerror("Close Excel", f"{error}\n\nNothing was saved for this invoice.")
+        elif isinstance(error, UnreadableError):
+            log_error(error.__cause__ or error, "reading the scans")
+            messagebox.showerror("Could not read the invoices",
+                                 "The invoices could not be read. Check that the internet works, then press "
+                                 "Process Invoices again.\n\nIf it happens again, please contact Zein.")
+        elif self.current:
+            # D-032: the window failed on one invoice's question. It waits for Zein; the others go ahead.
+            entry, self.current = self.current[0], None
+            try:
+                self.session.park(entry, error)
+                self.next()
+                return
+            except Exception as again:  # noqa: BLE001 - can't carry on: say so, as before
+                log_error(again)
+                messagebox.showerror("Something went wrong", "Something went wrong. Please contact Zein.")
         else:
+            log_error(error)
             messagebox.showerror("Something went wrong", "Something went wrong. Please contact Zein.")
         self.root.destroy()
+
+
+class UnreadableError(Exception):
+    """No page could be read (Azure or the internet is down). Nothing changed; the next run tries again."""
+
+    def __init__(self, cause: BaseException):
+        super().__init__(str(cause))
+        self.__cause__ = cause
 
 
 def run_window(session: Session, new_pdfs: list[Path], move: bool) -> None:

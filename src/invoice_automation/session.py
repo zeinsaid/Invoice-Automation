@@ -6,6 +6,7 @@ The review window (ui.py) is a thin layer over this, so the same logic can be dr
 import csv
 import re
 import time
+import traceback
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -21,6 +22,19 @@ LAST_EXPORT = STATE_DIR / "last_export.txt"  # the export the last report descri
 TIMINGS = STATE_DIR / "timings.csv"  # time staff spent per invoice, for real before/after numbers
 EXPORT_MAX_AGE = 45  # days; after that the report asks Zein for a fresh PowerSoft export
 NOT_SURE = "Staff were not sure: "  # how an invoice staff sent to Zein is noted
+ERROR_LOG = Path("logs/error.log")
+# D-032: an invoice the tool fails on waits for Zein, and the others carry on. Like any automatic note, it
+# goes back to staff by itself once an update fixes the cause (_return_fixed).
+CRASHED = "The tool hit an error on this invoice (details in logs\\error.log)."
+UNREADABLE_SCAN = "This scan could not be read (details in logs\\error.log). It is tried again next time."
+
+
+def log_error(error: BaseException, where: str = "") -> None:
+    """The details for Zein; staff only ever see a short message."""
+    ERROR_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with ERROR_LOG.open("a", encoding="utf-8") as f:
+        f.write(f"\n--- {datetime.now().isoformat(timespec='seconds')}" + (f" ({where})" if where else "") + "\n")
+        f.write("".join(traceback.format_exception(error)))
 
 
 @dataclass
@@ -39,6 +53,7 @@ class Session:
     entries: list[Entry] = field(default_factory=load_queue)
     events: list[Event] = field(default_factory=list)
     started: dict[str, float] = field(default_factory=dict)  # invoice -> when its first question was shown
+    failed: set[str] = field(default_factory=set)  # invoices that hit an error in this run: not tried again in it
 
     def __post_init__(self) -> None:
         self._return_fixed()
@@ -64,17 +79,24 @@ class Session:
 
     def next_question(self) -> tuple[Entry, Evaluation, Question] | None:
         """Finish everything that needs no question; return the next question, or None when done."""
-        if any(e.status == NEW for e in self.entries):
-            self.entries = split(self.entries)
-            save_queue(self.entries)
+        self._split_new()
         # Zein's mode is for Zein's list: those come first, so a long staff invoice doesn't stand in front.
         order = sorted(self.entries, key=lambda e: e.status != ZEIN_LIST) if self.zein else self.entries
         for entry in order:
             if entry.status != PENDING and not (self.zein and entry.status == ZEIN_LIST):
                 continue
-            ev = evaluate(entry, self.ctx)
+            if entry.key in self.failed:
+                continue
+            try:
+                ev = evaluate(entry, self.ctx)
+                if ev.outcome == "ready":
+                    result = finalize(ev, self.ctx)
+            except PermissionError:
+                raise  # a file open in Excel: staff close it and run again (nothing was saved)
+            except Exception as error:  # noqa: BLE001 - one broken invoice must not stop the others (D-032)
+                self.park(entry, error)
+                continue
             if ev.outcome == "ready":
-                result = finalize(ev, self.ctx)
                 self._event(entry, DONE, result=result)
                 self._time(entry, result)
             elif ev.outcome in (MANUAL, SKIPPED, RESCAN):
@@ -85,6 +107,40 @@ class Session:
                 self.started.setdefault(entry.key, time.monotonic())
                 return entry, ev, ev.questions[0]
         return None
+
+    def _split_new(self) -> None:
+        """New scans become one entry per invoice. A scan that can't be read (no internet, a broken PDF)
+        stays as it is and is tried again next run; the others go ahead."""
+        todo = {e.key for e in self.entries if e.status == NEW and e.key not in self.failed}
+        if not todo:
+            return
+        out = []
+        for entry in self.entries:
+            if entry.key not in todo:
+                out.append(entry)
+                continue
+            try:
+                out += split([entry])
+            except PermissionError:
+                raise
+            except Exception as error:  # noqa: BLE001 - D-032
+                log_error(error, entry.file)
+                self.failed.add(entry.key)
+                self.events.append(Event(entry, ZEIN_LIST, UNREADABLE_SCAN))  # shown, but its status stays NEW
+                out.append(entry)
+        self.entries = out
+        save_queue(self.entries)
+
+    def park(self, entry: Entry, error: BaseException) -> None:
+        """D-032: the tool failed on this invoice. The details go to the log, the invoice to Zein's list,
+        and the run carries on with the next one. The learned table and catalogue are read again, so
+        nothing half-done on this invoice reaches the next one."""
+        log_error(error, f"{entry.label or entry.file}, pages {entry.pages}")
+        self.failed.add(entry.key)
+        self.started.pop(entry.key, None)
+        if entry.status != DONE:  # finalize got to the end: it is done, whatever failed afterwards
+            self._event(entry, ZEIN_LIST, CRASHED)
+        self.ctx = Context.load()
 
     def answer(self, entry: Entry, question: Question, value) -> None:
         entry.answers[question.id] = value
