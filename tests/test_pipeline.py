@@ -136,3 +136,34 @@ def test_wrong_pieces_from_the_cost_question_replaces_the_pack_answer(monkeypatc
     assert entry.answers == {"pack:0:48": 1}
     s.answer(entry, q, {"code": "86"})  # wrong item: the item answer is replaced, the pieces asked again
     assert entry.answers == {"item:0:48": {"code": "86"}}
+
+
+# --- What the new-item form starts with (D-034 amendment) -------------------------------------------
+
+def test_new_item_form_starts_at_the_printed_case_size():
+    def start(description, printed=None, pieces_known=False):
+        line = InvoiceLine("1", description, "", 1, 10.0, 19, printed_factor=printed, pieces_known=pieces_known)
+        return pipeline.new_item_defaults(line)
+
+    assert start("HELL ZERO 250ML X 24", 24) == ("HELL ZERO 250ML", 24)
+    assert start("HELL COTTON CANDY 250ML X24 SUMMER EDITION", 24) == ("HELL COTTON CANDY 250ML SUMMER EDITION", 24)
+    assert start("XIXO TEA LEMON 250ML \u00d7 24", 24) == ("XIXO TEA LEMON 250ML", 24)
+    assert start("330 CAN 4X6 COCA COLA ZERO", 24) == ("330 CAN COCA COLA ZERO", 24)
+    assert start("BIC LIGHTER MINI", 50) == ("BIC LIGHTER MINI", 50)  # a pack-size column (Andrikian): name kept
+    assert start("CHUPA CHUPS X12", 50) == ("CHUPA CHUPS X12", 50)  # the name's number isn't the case: kept
+    assert start("SNICKERS 50G") == ("SNICKERS 50G", 1)  # nothing printed
+    assert start("MARLBORO RED", 10, pieces_known=True) == ("MARLBORO RED", 1)  # already counts packs (D-005)
+
+
+def test_do_we_already_sell_one_piece_leaves_out_what_cant_be_the_same_product():
+    def item(code, name, brand):
+        return Item(code, name, "", 19, 0.5, 1.0, "", brand, "", True)
+
+    items = [item("1", "HELL BLACK CHERRY 250ML", "HELL"), item("2", "HELL BLACK CHERRY 500ML", "HELL"),
+             item("3", "SHARK BLACK CHERRY 250ML", "SHARK"), item("4", "HELL CLASSIC 250ML", "HELL")]
+    ctx = pipeline.Context(Catalogue({i.code: i for i in items}, {}, {}), None, {})
+    ctx.table = type("NoLearned", (), {"rows": []})()
+    found = pipeline.single_piece_candidates("HELL BLACK CHERRY 250ML", ctx, None)
+    assert [c for c, _, _ in found] == ["1"]  # not the 500 ml can, not Shark, not another flavour
+    assert pipeline._sizes("COCA COLA 1.5 LTR") == pipeline._sizes("COCA COLA 1.5L") == {(1.5, "L")}
+    assert pipeline._sizes("KINDER BUENO WHITE T3") == set()  # a pack count is not a size: no limit

@@ -69,3 +69,4 @@ class Invoice:
     flags: list[Flag] = field(default_factory=list)  # invoice-wide flags
     page_angle: float = 0.0  # first page's rotation, degrees clockwise; 90 for a page scanned sideways
     discount: float = 0.0  # a discount on the whole invoice the paper doesn't print (0.15); totals on the paper are before it
+    vat_per_line: bool = False  # the supplier rounds each line's VAT, not each rate's (Hell)

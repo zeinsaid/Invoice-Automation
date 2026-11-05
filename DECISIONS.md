@@ -37,6 +37,9 @@ Numbered record of design decisions: what was decided, why, and what else was co
 | D-029 | Two new layouts: Coca-Cola, and Agrotis' shop-counter invoice | Accepted |
 | D-030 | Asian Food Market's order invoice: VAT taken from each item, 15% discount the paper doesn't show | Accepted |
 | D-031 | Inactive items: one export with an Active column; never matched, codes stay taken | Accepted |
+| D-032 | An invoice the tool fails on waits for Zein; the others carry on | Accepted |
+| D-033 | Every line's cost is checked against what we pay; far off means a question | Accepted |
+| D-034 | Hell Beverages: a new supplier, read like Coca-Cola; VAT rounded per line | Accepted |
 
 ---
 
@@ -1040,3 +1043,28 @@ Zein: "No matter how wrong our prices are in the system, they're not going to be
 - *A tighter band (1.5x).* Rejected after the replay: it asks about promotions, and a question that is usually "yes" teaches staff to press yes without looking.
 
 **Reasoning.** The pack-size checks guard one way into a wrong cost; this guards the result, whatever the way in. It uses numbers the tool already has, and it costs nothing on a normal invoice: only one line in the shop's first 16 invoices would have been asked. A known limit: a wrong learned cost (like the 0.026 left by the Monster answer) counts as a reference, so such a row must still be deleted (Admin.bat 5). The monthly check (D-026) lists costs that are far from PowerSoft's.
+
+## D-034: Hell Beverages: a new supplier, read like Coca-Cola; VAT rounded per line
+
+**Status:** Accepted · 2026-11-05
+
+**Context.** Hell cans used to come through Athienitis. The shop now also buys from Hell Beverages Ltd directly (first invoice INIC2105219, 2 November 2026, 27 lines). Hell Beverages isn't a supplier in PowerSoft yet. The invoice is a clean printed table: Item Code (the barcode), Description, Qty, Price, Disc %, Vat %, Amount. Page 2 has only the totals. Staff said the 250 ml cans come 24 to a case and the 500 ml 12, and the paper prints it in every description ("HELL CLASSIC 250ML X 24"). "CREDIT INVOICE" means paid on credit terms, not a credit note.
+
+**Decision.**
+- New profile `suppliers/hell.py`, recognised by "HELL BEVERAGES" (not "HELL": Athienitis invoices list Hell cans too).
+- **Quantities are cases.** The case size is read from the description and confirmed by the price, as for Coca-Cola (D-029). The description reader moves to `base.case_size`, shared by both. It now also reads "×": the scanner read two lines' X as the multiplication sign.
+- **The barcode is one can's.** All 8 lines for items we already stock matched by barcode, every one the can's own barcode in PowerSoft.
+- **VAT is rounded line by line.** Hell works out each line's VAT and rounds it (10.60 at 19% = 2.014, printed as 2.01). The tool added VAT once per rate, which came to 3 cents more on this invoice (346.56 against 346.53). That is inside the 5-cent tolerance, but Hell rounds the same way on every line, so a bigger order would fail the total check and ask staff to type a total that is already right. A profile can now say `VAT_PER_LINE = True`, and the lines are then added up the supplier's way. On this invoice that gives exactly 346.53.
+
+**Result on the first invoice.** All 27 lines are read with no misreads, and the total matches to the cent. 8 lines are items we stock. 6 of those ask once to confirm 24 per case, because Hell's price (0.44 a can) is more than 10% from the cost PowerSoft has from Athienitis (0.38). Their answers are learned with Hell's own cost, so the next invoice doesn't ask. 19 lines are new items.
+
+**Alternatives considered.**
+- *Read the case size from the Qty column or ask once per item.* Not needed: the paper prints it on every line, and the price check guards against a wrong one.
+- *Compare the lines with the Net Value (before VAT) instead of the total.* Rejected: every other profile compares the total with VAT, the one staff are asked to type. One rule for the total check is easier to explain to staff.
+- *Widen the total tolerance.* Rejected: it would weaken the check for every supplier to fix one supplier's rounding.
+
+**Reasoning.** Same pattern as every new layout (D-021, D-029): a short profile says what each column means, and the shared checks do the rest. The rounding rule belongs to the supplier, so it goes in the supplier's profile, not in a looser check for everyone.
+
+**Amendment (2026-11-05): the new-item form starts at the printed case size.** The form's "How many do you sell from 1 unit on the invoice?" always started at 1, and its name box at the invoice's wording ("HELL ZERO 250ML X 24"). Hell's first invoice has 19 new items. Pressing on with the 1 would have booked a case of 24 as one can at 10.60, and no check can catch it: a new item has no cost to compare with (D-033 skips new items). *Decision:* when the invoice prints a case size (in the description for Hell and Coca-Cola, in a pack-size column for Andrikian and Agrotis), the form starts at it. If the size is written in the description, it is also taken out of the suggested name ("HELL ZERO 250ML X 24" -> "HELL ZERO 250ML"; a name ending in "xN" means a pack in PowerSoft, D-005). An invoice that already counts single pieces still shows 1, greyed out (D-005 amendment). Staff can change both boxes, and the cost per piece below the form shows at once whether the number is right (€0.44 a can, not €10.60). *Alternative considered:* keep 1 and rely on the cost line. Rejected: the cost line only helps someone who reads it, and the paper already says the number.
+
+*The "Do we already sell ONE piece of it?" list.* Because the form can now start above 1, this list shows as soon as the form opens. It shows the closest names, and names alone can't tell one flavour from another: for HELL ZERO 250ML it offered SHARK ZERO 250ML (79/100) and HELL ENERGY S/FOCUS 250ML. One wrong click books the stock to another product. The list now leaves out what can't be the same product: **another size** (a 500 ml can for a 250 ml line), **another brand we stock** (Shark for a Hell line), and **weak matches below 75** (other flavours of the same can scored 74 or less on the shop's names; the same product sold as a pack scored 79 or more: Kinder Bueno T3 -> the single bar 88, AQUA 500ML -> AQUA WATER 500ML 79). On the Hell invoice, the list now appears once, on HELL APPLE 500ML, offering HELL GREEN APPLE 500ML (85). That is exactly the question to ask, because its barcode differs. *Alternatives considered:* hide the list when the form starts above 1 (rejected: it is there for exactly these lines, a case or pack of something we may sell as one piece); only the score limit (rejected: Xixo Peach 500 against the 250 ml scored 87).

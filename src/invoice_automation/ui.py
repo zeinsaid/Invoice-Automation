@@ -19,7 +19,8 @@ from .extract import analyze_page
 from .layout import ean_is_valid, parse_number
 from .matching import pack_doubt
 from .pipeline import (MANUAL, NEW, PENDING, READY_DIR, RESCAN, SKIPPED, ZEIN_LIST, mark_uploaded,
-                       search_items, suggested_category, waiting_uploads)
+                       new_item_defaults, search_items, single_piece_candidates, suggested_category,
+                       waiting_uploads)
 from .session import Session, _where, log_error
 
 FONT = "Segoe UI"
@@ -439,7 +440,8 @@ class App:
         # The barcode box starts empty unless staff scanned one on the previous screen: a pre-filled invoice
         # barcode gets accepted unchecked, and it is often the pack's, not one piece's.
         invoice_barcode = line.barcode if ean_is_valid(line.barcode) else ""
-        fields["description"] = add(0, "Name of ONE piece\n(not the pack)", self.entry_box(form, line.description, width=36))
+        start_name, start_pieces = new_item_defaults(line)  # the case size on the paper, out of the name (D-034)
+        fields["description"] = add(0, "Name of ONE piece\n(not the pack)", self.entry_box(form, start_name, width=36))
         barcode_cell = tk.Frame(form, bg="white")
         fields["barcode"] = self.entry_box(barcode_cell, barcode, width=20)
         fields["barcode"].pack(anchor="w")
@@ -461,7 +463,7 @@ class App:
             tk.Button(hint, text="Use invoice barcode", command=use_invoice_barcode, font=(FONT, 10), relief="solid",
                       bd=1, bg="white", cursor="hand2").pack(side="left", padx=(8, 0))
         pieces_cell = tk.Frame(form, bg="white")
-        fields["pieces"] = self.entry_box(pieces_cell, "1", width=6)
+        fields["pieces"] = self.entry_box(pieces_cell, str(start_pieces), width=6)
         fields["pieces"].pack(side="left")
         if line.pieces_known:
             # Cassandra, Cosmos, Fereos, Vassos count single packs already (10 cartons x 10 = 100 packs). Asking
@@ -493,8 +495,7 @@ class App:
             shown_for = key
             for child in stocked.winfo_children():
                 child.destroy()
-            hits = search_items(name, ctx, ev.invoice.supplier) if key else []
-            hits = [h for h in hits if h[2] >= hits[0][2] - 8][:3] if hits else []  # only near the best match
+            hits = single_piece_candidates(name, ctx, ev.invoice.supplier) if key else []
             if not hits:
                 return
             self.label(stocked, "Do we already sell ONE piece of it?\nThen use that item, don't make a new one:", 13,
@@ -527,6 +528,7 @@ class App:
         fields["pieces"].bind("<KeyRelease>", show_stocked, add="+")
         fields["description"].bind("<KeyRelease>", show_stocked)
         show_cost()
+        show_stocked()  # the form can start at more than 1 piece (D-034)
         (fields["price"] if barcode else fields["barcode"]).focus_set()
         error = self.label(area, "", 12, color=RED_BG, pady=(4, 0))
 

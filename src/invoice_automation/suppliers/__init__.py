@@ -7,12 +7,12 @@ A profile provides:
 Table-style invoices share their parsing in base.py.
 """
 
-from . import (agrotis, agrotis_pos, andrikian, asian, athenites, cassandra, cocacola, cosmos, example, fereos, jumbo,
-               pambos, partyice, rainbow, vassos)
+from . import (agrotis, agrotis_pos, andrikian, asian, athenites, cassandra, cocacola, cosmos, example, fereos, hell,
+               jumbo, pambos, partyice, rainbow, vassos)
 
 # agrotis_pos before agrotis: both are Agrotis, and only the shop-counter printout has an 'S02 - ' number.
 PROFILES = [athenites, cassandra, cosmos, fereos, andrikian, vassos, agrotis_pos, agrotis, rainbow, pambos, partyice, jumbo,
-            cocacola, asian, example]  # example: the made-up demo supplier
+            cocacola, asian, hell, example]  # example: the made-up demo supplier
 
 # Suppliers the tool recognises but deliberately skips (D-013), with the message for the report.
 SKIPPED = {

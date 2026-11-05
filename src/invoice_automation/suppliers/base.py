@@ -9,6 +9,7 @@ A supplier module describes its invoice and turns one table row into an InvoiceL
     NUMBER, DATE, TOTAL    regex patterns (first group) for invoice number, date, printed total
     row_to_line(row)       one table row -> InvoiceLine, or None if it isn't an item row
     adjust(invoice, text)  optional: invoice-wide changes, e.g. a discount on the whole invoice
+    VAT_PER_LINE           optional: True if the supplier rounds the VAT of each line (Hell), not of each rate
     continuation_rows(result)  optional: rows of a later page whose table has no header row
 
 This module does the rest the same way for everyone: find the table, apply staff corrections,
@@ -69,15 +70,16 @@ def parse(profile, result: dict, source, page_index: int, corrections: dict | No
         date=_date(_first(profile.DATE, text)),
         lines=lines,
         printed_total=parse_number(_first(profile.TOTAL, text) or ""),
-        computed_total=computed_total(lines),
+        computed_total=0.0,
         source=source,
         pages=[page_index],
         page_angle=page.get("angle", 0.0) or 0.0,
+        vat_per_line=getattr(profile, "VAT_PER_LINE", False),
     )
     adjust = getattr(profile, "adjust", None)
     if adjust:
         adjust(invoice, text)
-        invoice.computed_total = computed_total(invoice.lines)
+    invoice.computed_total = computed_total(invoice.lines, invoice.vat_per_line)
     return invoice
 
 
@@ -99,17 +101,22 @@ def combine(pages: list[Invoice]) -> Invoice:
         date=next((p.date for p in pages if p.date), None),
         lines=lines,
         printed_total=next((p.printed_total for p in reversed(pages) if p.printed_total is not None), None),
-        computed_total=computed_total(lines),
+        computed_total=computed_total(lines, first.vat_per_line),
         source=first.source, pages=[i for p in pages for i in p.pages],
         flags=[f for p in pages for f in p.flags], page_angle=first.page_angle, discount=first.discount,
+        vat_per_line=first.vat_per_line,
     )
     if not lines:
         invoice.flags.append(Flag(RED, "row", "No item lines could be read.", ZEIN))
     return invoice
 
 
-def computed_total(lines: list[InvoiceLine]) -> float:
-    """Total incl. VAT the way invoices compute it: VAT on the sum per rate, rounded once."""
+def computed_total(lines: list[InvoiceLine], vat_per_line: bool = False) -> float:
+    """Total incl. VAT the way invoices compute it: VAT on the sum per rate, rounded once; or, for a
+    supplier that rounds each line's VAT (Hell), every line's VAT rounded on its own."""
+    if vat_per_line:
+        return round(sum(line.amount_excl_vat + round(line.amount_excl_vat * line.vat_rate / 100 + 1e-9, 2)
+                         for line in lines), 2)
     by_rate: dict[int, float] = {}
     for line in lines:
         by_rate[line.vat_rate] = by_rate.get(line.vat_rate, 0.0) + line.amount_excl_vat
@@ -166,6 +173,32 @@ def spread_discount(invoice: Invoice, discount_excl_vat: float) -> None:
             line.amount_excl_vat *= factor
             if line.list_price_excl_vat is not None:
                 line.list_price_excl_vat *= factor
+
+
+def case_size(description: str) -> int | None:
+    """Pieces in one case, from the description: '330 CAN 4X6 COCA COLA' -> 24, '500 CAN X24 MONSTER' -> 24,
+    '1.5 PET X6 SPRITE' -> 6, 'HELL CLASSIC 250ML X 24' -> 24 (a '×' sign counts as X)."""
+    found = _case_size_match(description)
+    return found[0] if found else None
+
+
+def without_case_size(description: str) -> str:
+    """The name of ONE piece, for the new-item form: the case size taken out of the invoice's wording
+    ('HELL CLASSIC 250ML X 24' -> 'HELL CLASSIC 250ML'). A name ending in ' xN' is a pack in PowerSoft (D-005)."""
+    found = _case_size_match(description)
+    if not found:
+        return description.strip()
+    start, end = found[1]
+    return " ".join((description[:start] + " " + description[end:]).split()).strip(" -/,")
+
+
+def _case_size_match(description: str) -> tuple[int, tuple[int, int]] | None:
+    """(pieces, where the wording is) for '4X6' (= 24) or 'X 24' / 'X24' / '\u00d7 24' (= 24)."""
+    m = re.search(r"\b(\d+)[X\u00d7](\d+)\b", description, flags=re.IGNORECASE)  # no space: '500 X24' is not 500 x 24
+    if m:
+        return int(m.group(1)) * int(m.group(2)), m.span()
+    m = re.search(r"(?<![\w.])[X\u00d7]\s*(\d+)\b", description, flags=re.IGNORECASE)
+    return (int(m.group(1)), m.span()) if m else None
 
 
 def split_code_and_barcode(text: str) -> tuple[str, str, str]:

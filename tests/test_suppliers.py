@@ -5,7 +5,8 @@ import re
 import pytest
 
 from invoice_automation.layout import without_handwriting
-from invoice_automation.suppliers import agrotis_pos, asian, athenites, cocacola, identify, pambos, skipped_reason
+from invoice_automation.suppliers import (agrotis_pos, asian, athenites, cocacola, hell, identify, pambos,
+                                         skipped_reason)
 
 
 def _page(rows, content="", styles=()):
@@ -107,7 +108,8 @@ COLA_TEXT = "Coca-Cola HBC Cyprus\nDocument No: 4000000001 Shipment No: 10000000
 @pytest.mark.parametrize("description, size", [
     ("1.5 PET X6 COCA COLA CY", 6), ("330 CAN 4X6 COCA COLA SLK KC GR", 24), ("330 CAN 3X8 COCA COLA ZERO", 24),
     ("500 CAN X24 MONSTER ULTRA FIESTA NP CY", 24), ("500 PET X12 FUZE TEA LEM", 12),
-    ("330 NRG 4X6 CORONA EXTRA BOX 11.3 CY", 24), ("COCA COLA 500 X24", 24)])
+    ("330 NRG 4X6 CORONA EXTRA BOX 11.3 CY", 24), ("COCA COLA 500 X24", 24),
+    ("XIXO TEA LEMON 250ML × 24", 24)])
 def test_coca_cola_case_size(description, size):
     assert cocacola.case_size(description) == size
 
@@ -170,3 +172,34 @@ def test_asian_till_receipt_is_still_entered_by_hand():
     receipt = "Cash Invoice ASIAN FOOD MARKET ZHENG DONISCHAL LTD InvNo: 00155409"
     assert identify(receipt) is None
     assert "till receipt" in skipped_reason(receipt)
+
+
+# --- Hell Beverages ---------------------------------------------------------------------------------
+
+HELL_TEXT = ("HELL BEVERAGES LTD\nCREDIT INVOICE\nDocument No. : INIC1000001\nDocument Date\n: 01/11/2026\n"
+             "Gross Value:\n30.00\nDiscount:\n0.00\nNet Value:\n30.00\nVAT:\n4.83\nTotal:\n34.83")
+HELL_HEADER = ["Item Code", "Description", "Qty", "Price", "Disc %", "Vat %", "Amount"]
+
+
+def test_hell_invoice():
+    page = _page([HELL_HEADER,
+                  ["5449000000439", "HELL CLASSIC 250ML X 24", "1", "10.00", "", "19", "10.00"],
+                  ["5000112637922", "XIXO TEA LEMON 250ML \u00d7 24", "1.", "5.00", "", "5", "5.00"],
+                  ["5000112637939", "HELL ZERO 500ML X 12", "2", "7.50", "", "19", "15.00"]], HELL_TEXT)
+    assert identify(HELL_TEXT) is hell
+    assert identify("ATHIENITIS ... HELL CLASSIC 250ML") is athenites  # Hell cans on another supplier's invoice
+    inv = hell.parse(page, "x.pdf", 0)
+    assert (inv.number, str(inv.date), inv.printed_total) == ("INIC1000001", "2026-11-01", 34.83)
+    assert [(l.quantity, l.printed_factor, l.list_price_excl_vat, l.flags) for l in inv.lines] == [
+        (1, 24, 10.0, []), (1, 24, 5.0, []), (2, 12, 7.5, [])]  # 'x' read as the '×' sign; '1.' is 1
+
+
+def test_hell_rounds_vat_per_line():
+    # 10.60 at 19% is 2.014: Hell prints 2.01 on every such line. Rounded once per rate, ten of them
+    # would be 4 cents more than the paper; rounded per line, the same as the paper.
+    page = _page([HELL_HEADER] + [["5449000000439", "HELL CLASSIC 250ML X 24", "1", "10.60", "", "19", "10.60"]] * 10,
+                 HELL_TEXT)
+    inv = hell.parse(page, "x.pdf", 0)
+    assert inv.computed_total == 126.10  # 10 x (10.60 + 2.01)
+    assert hell.base.computed_total(inv.lines) == 126.14  # the usual way
+    assert hell.base.combine([inv]).computed_total == 126.10

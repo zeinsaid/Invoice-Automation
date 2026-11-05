@@ -15,6 +15,7 @@ import csv
 import hashlib
 import json
 import os
+import re
 import shutil
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
@@ -223,7 +224,7 @@ def evaluate(entry: Entry, ctx: Context) -> Evaluation:
     for line in inv.lines:
         if line.amount_incl_vat is not None:  # the paper prints no VAT (D-030)
             _set_vat(line, _likely_vat(line, inv.supplier, ctx))
-    inv.computed_total = suppliers.base.computed_total(inv.lines)
+    inv.computed_total = suppliers.base.computed_total(inv.lines, inv.vat_per_line)
     ev.invoice = inv
     ev.labels = profile.EDITABLE
     if a.get("number"):
@@ -674,6 +675,21 @@ def _issue_new_item(lines: list[InvoiceLine], inv: Invoice, form: dict, pieces_p
     return item
 
 
+def new_item_defaults(line: InvoiceLine) -> tuple[str, int]:
+    """What the new-item form starts with: (name of one piece, pieces in 1 invoice unit).
+
+    If the invoice prints a case size ('HELL CLASSIC 250ML X 24', Andrikian's U.O.M.), the form starts at it,
+    and the size is taken out of the name. Starting at 1 let a case of 24 go in as one can at the case price,
+    which no check can catch on a new item: there is no cost to compare with (D-034 amendment)."""
+    size = line.printed_factor
+    if line.pieces_known or not size or not float(size).is_integer():
+        return line.description, 1
+    name = line.description
+    if suppliers.base.case_size(name) == size:
+        name = suppliers.base.without_case_size(name)
+    return name, int(size)
+
+
 def suggested_category(candidates, catalogue: Catalogue) -> str:
     """The category of the most similar existing item (D-012; no LLM, D-006 amendment)."""
     for code, _, _ in candidates or []:
@@ -695,6 +711,45 @@ def search_items(text: str, ctx: Context, supplier: str | None) -> list[tuple[st
     """The search box in the review window. Items that hold no stock can't be chosen (D-005)."""
     hits = similar_names(text, supplier, ctx.catalogue, ctx.table, limit=16)
     return [h for h in hits if ctx.catalogue.items[h[0]].storable][:8]
+
+
+def single_piece_candidates(name: str, ctx: Context, supplier: str | None) -> list[tuple[str, str, float]]:
+    """The new-item form's "Do we already sell ONE piece of it?" list: up to 3 items near the best name match.
+
+    Names alone can't tell one flavour from another ('HELL ZERO 250ML' is 79 against 'SHARK ZERO 250ML'),
+    so items that can't be the same product are left out: another size ('XIXO PEACH 500ML' is not
+    the 250 ml one) or another brand we stock. A weak name match (another flavour of the same can) is
+    left out too: the box is for the same product sold as a pack (D-034 amendment)."""
+    sizes = _sizes(name)
+    brand = _known_brand(name, ctx.catalogue)
+    hits = []
+    for code, description, score in search_items(name, ctx, supplier):
+        item = ctx.catalogue.items[code]
+        if score < SINGLE_PIECE_MIN_SCORE or not sizes <= _sizes(description):
+            continue
+        if brand and item.brand and name_key(item.brand) != brand:
+            continue
+        hits.append((code, description, score))
+    return [h for h in hits if h[2] >= hits[0][2] - 8][:3] if hits else []
+
+
+# On the shop's names: other flavours of the same can score 74 or less, the same product 79 or more
+# (Kinder Bueno T3 -> the single bar 88, Hell Apple 500 -> Hell Green Apple 500 85).
+SINGLE_PIECE_MIN_SCORE = 75
+_UNITS = {"ML": "ML", "CL": "CL", "L": "L", "LT": "L", "LTR": "L", "G": "G", "GR": "G", "GRS": "G", "KG": "KG"}
+
+
+def _sizes(name: str) -> set[tuple[float, str]]:
+    """'HELL CLASSIC 250ML' -> {(250, 'ML')}; 'COCA COLA 1.5 LTR' -> {(1.5, 'L')}. Pack counts (T3, X12) aren't sizes."""
+    return {(float(n), _UNITS[u]) for n, u in re.findall(r"(\d+(?:\.\d+)?) (ML|CL|LTR|LT|L|GRS|GR|G|KG)\b",
+                                                           name_key(name))}
+
+
+def _known_brand(name: str, catalogue: Catalogue) -> str:
+    """The longest brand we stock that the name starts with ('HELL ZERO 250ML' -> 'HELL'), or ''."""
+    key = name_key(name)
+    hits = [name_key(b) for b in catalogue.brands if key == name_key(b) or key.startswith(name_key(b) + " ")]
+    return max(hits, key=len, default="")
 
 
 # --- Small state files -------------------------------------------------------------------------

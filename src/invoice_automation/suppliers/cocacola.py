@@ -65,13 +65,7 @@ def adjust(invoice, text: str) -> None:
         invoice.printed_total = round(invoice.printed_total - deposit, 2)
 
 
-def case_size(description: str) -> int | None:
-    """'330 CAN 4X6 COCA COLA' -> 24, '500 CAN X24 MONSTER' -> 24, '1.5 PET X6 SPRITE' -> 6."""
-    m = re.search(r"\b(\d+)X(\d+)\b", description, flags=re.IGNORECASE)  # no space: '500 X24' is not 500 x 24
-    if m:
-        return int(m.group(1)) * int(m.group(2))
-    m = re.search(r"(?<![\w.])X\s*(\d+)\b", description, flags=re.IGNORECASE)
-    return int(m.group(1)) if m else None
+case_size = base.case_size  # the case size reader, shared with Hell
 
 
 def row_to_line(row) -> InvoiceLine | None:
