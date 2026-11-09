@@ -275,6 +275,8 @@ Only steps 1–2 are trusted automatically. Results from steps 3–4 are written
 
 **Amendment (2026-10-27): Items import without Modify.** Zein: with Modify ticked, PowerSoft refuses an item it doesn't have yet, so a file of new items has to go in without it (and a file mixing new items with changes to existing ones needs two uploads, first without Modify, then with it). The tool never changes existing items, so its files only ever need the first: without Modify, PowerSoft adds the new rows and skips the rest. The Done screen and the Staff guide now say "Modify NOT ticked". PowerSoft says straight away when an upload fails, so a wrong tick can't go unnoticed.
 
+**Amendment (2026-11-09): a Purchase order needs its invoice generated.** Uploading a file as a Purchase order only creates a *supplier order*. Stock and costs change once someone opens Orders > Supplier orders, selects it and presses **Generate invoice**. On Athenites 1000756371 (6 Nov) that step was missed: the file had been uploaded (PowerSoft refused a second upload with the same number) but nothing had changed, which the monthly check found (D-026 amendment) and Zein traced. Every other invoice had it done, so the manager knew the step, but nothing in the tool said it. The Done screen now lists it as its own step after the Purchase order ("Orders > Supplier orders: select each one and press Generate invoice. Until then nothing changes in PowerSoft"), the "Mark as uploaded" check asks "with the invoice generated?", and the Staff guide has it. The tool can't see whether it was done; the monthly check is the safety net.
+
 ---
 
 ## D-009: Cost rules: per piece, before VAT, after discounts; free goods averaged in; price changes flagged and logged

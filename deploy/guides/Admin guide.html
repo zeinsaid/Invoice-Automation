@@ -84,7 +84,8 @@ With the new export, also copy <code>Admin only\data\</code> to your PC and ask 
 <code>scripts\check_learned.py</code> on it. It lists answers worth a look (names with different words, a better-fitting item,
 a cost far from PowerSoft's, a different size). Delete the wrong ones at the shop with <code>Admin.bat</code> &rarr; 5.
 It also lists invoices marked as uploaded whose costs never reached PowerSoft: upload their Excel from
-<code>output\Uploaded\&lt;date&gt;\</code> as a Purchase order, if PowerSoft doesn't have it.</p>
+<code>output\Uploaded\&lt;date&gt;\</code> as a Purchase order if PowerSoft doesn't have it, or, if it does
+(PowerSoft refuses a second one with the same number), generate its invoice under Orders &gt; Supplier orders.</p>
 <p><b>Switched-off items:</b> when an invoice has an item we had made inactive (its barcode is still in PowerSoft), the tool
 offers that item instead of a new one. The Done screen then says <b>"Switch these items back ON"</b> first, and the report says
 "SWITCH ON in PowerSoft before uploading": make it active in PowerSoft before the Items import and Purchase order.</p>
@@ -107,7 +108,7 @@ offers that item instead of a new one. The Done screen then says <b>"Switch thes
 <h2>Things to remember</h2>
 <ul>
   <li><b>Azure:</b> the subscription ("the plug") is pay-as-you-go since 9 November 2026 (upgraded from the free trial). The Document Intelligence resource stays on the <b>free F0 tier</b>: 500 pages a month, refused above that, never billed (the shop reads about 60). A budget of 5 a month emails Zein if anything ever costs money. Never switch the resource to S0 without a reason. The key is in <code>.env</code>.</li>
-  <li><b>Costs:</b> a Purchase order upload updates an item's cost, so only new items go through Items import (checked at the shop, 2026-10-20). Changing anything else about an item (name, brand, retail price) is done in PowerSoft or through Items import by you, not by the tool.</li>
+  <li><b>Costs:</b> a Purchase order updates an item's cost and stock once its invoice is generated (Orders &gt; Supplier orders &gt; Generate invoice), so only new items go through Items import (checked at the shop, 2026-10-20). Changing anything else about an item (name, brand, retail price) is done in PowerSoft or through Items import by you, not by the tool.</li>
   <li><b>Time saved:</b> <code>data\state\timings.csv</code> has lines, questions and minutes per invoice: the real numbers for the CV.</li>
   <li>Staff never create items by hand in PowerSoft: the tool hands out item codes in order and would clash.</li>
 </ul>

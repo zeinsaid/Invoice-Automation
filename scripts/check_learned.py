@@ -99,7 +99,8 @@ def main() -> None:
     print(f"\n{len(found)} of {len(table.rows)} rows to look at.")
 
     missing = not_uploaded(args.data / "state", catalogue)
-    print("\nInvoices marked as uploaded whose new costs are not in PowerSoft (Purchase order not uploaded?):")
+    print("\nInvoices marked as uploaded whose new costs are not in PowerSoft (Purchase order not uploaded, or "
+          "its invoice not generated?):")
     for line in missing or ["   none"]:
         print(line)
 
@@ -134,7 +135,8 @@ def not_uploaded(state: Path, catalogue: Catalogue) -> list[str]:
             r = changes[0]
             out.append(f"   {done['file']}: none of its {len(changes)} new costs are in PowerSoft (e.g. "
                        f"{r['item_code']} {r['description']}: {catalogue.items[r['item_code']].cost:.2f}, "
-                       f"should be {float(r['new_cost']):.2f}). Upload it as a Purchase order if it isn't there.")
+                       f"should be {float(r['new_cost']):.2f}). In PowerSoft: Orders > Supplier orders > Generate invoice; or "
+                       "upload it as a Purchase order if it isn't there.")
     return out
 
 

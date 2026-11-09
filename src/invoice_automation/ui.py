@@ -707,8 +707,15 @@ class App:
         what = "ALL the files" if len(waiting) > 1 else "the file"
         self.label(box, f"{step}.  Purchase order: {what} below.", 14, True, pady=(6, 0)).configure(bg=bg)
         if first:
-            self.label(box, "Do step 1 first: the purchase order needs the new items to be in PowerSoft.",
+            self.label(box, "Do the Items import first: the purchase order needs the new items to be in PowerSoft.",
                        12, color=GREY, pady=(2, 0)).configure(bg=bg)
+        step += 1
+        # D-008 amendment (2026-11-09): an uploaded purchase order is only a supplier order. Stock and costs
+        # change when its invoice is generated; one was missed on 6 Nov.
+        self.label(box, f"{step}.  Orders > Supplier orders: select each one and press Generate invoice.", 14, True,
+                   pady=(6, 0)).configure(bg=bg)
+        self.label(box, "Until then nothing changes in PowerSoft: no stock, no new costs.", 12, color=GREY,
+                   pady=(2, 0)).configure(bg=bg)
         self.label(box, f"{step + 1}.  When it is in PowerSoft, tick it and press 'Mark as uploaded':", 14, True,
                    pady=(10, 2)).configure(bg=bg)
         ticks = []
@@ -722,7 +729,7 @@ class App:
             names = [f for f, var in ticks if var.get()]
             if not names:
                 return
-            if not messagebox.askyesno("Uploaded?", f"Are these {len(names)} file(s) in PowerSoft now (both steps)?\n\n"
+            if not messagebox.askyesno("Uploaded?", f"Are these {len(names)} file(s) in PowerSoft now, with the invoice generated?\n\n"
                                                     "They are moved out of the upload folder, so nobody uploads them twice."):
                 return
             try:
