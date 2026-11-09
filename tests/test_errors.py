@@ -112,6 +112,22 @@ def test_finalize_that_stops_half_way_leaves_nothing_to_upload(shop, monkeypatch
     assert [w["file"] for w in pipeline.waiting_uploads()] == ["Test INV1.xlsx"] and ev.entry.status == "done"
 
 
+def test_an_item_switched_back_on_is_listed_first_and_remembered(shop, monkeypatch):
+    monkeypatch.setattr(pipeline, "SWITCHED_ON", shop / "switched_on.txt")
+    old = Item("5", "CHOC BAR 90GR", "5290000000017", 5, 1.00, 2.00, SUPPLIER, "", "", True)
+    catalogue = Catalogue({}, {}, {}, {"5": old})
+    catalogue.switch_on("5")  # staff said YES (D-031 amendment)
+    line = InvoiceLine("1", "CHOC BAR 90G", "5290000000017", 12, 12.0, 5, pieces_known=True)
+    inv = Invoice(SUPPLIER, "Test", "INV1", None, [line], 12.6, 12.6, shop / "x.pdf", [0])
+    (shop / "x.pdf").write_bytes(b"scan")
+    ev = Evaluation(Entry("x.pdf", [0], ""), invoice=inv, outcome="ready", lines=[(line, Match("5", 1, "staff"))])
+    result = pipeline.finalize(ev, pipeline.Context(catalogue, SupplierItems([], shop / "t.xlsx"), {}))
+    assert result.switch_on == ["5 CHOC BAR 90GR"]
+    assert any("switch it back on" in f.message for f in result.rows[0].flags)
+    assert pipeline.waiting_uploads()[0]["switch_on"] == ["5 CHOC BAR 90GR"]  # the Done screen's first step
+    assert pipeline._load_switched_on() == ["5"]  # the next invoice doesn't ask again before a new export
+
+
 def test_a_new_item_keeps_its_code_when_the_invoice_is_finished_again(shop):
     _, ctx = _ready_invoice(shop)
     line = InvoiceLine("1", "NEW CHOC 50G", "4000000000006", 10, 5.0, 5)

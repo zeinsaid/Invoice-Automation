@@ -322,10 +322,13 @@ class App:
         # Words that differ are red, so 'A2' vs 'A3' or 'Black' vs 'Blue' can't be missed.
         self._compare(area, "Invoice says:", q.line.description, q.data["description"])
         self._compare(area, "Our item:", q.data["description"], q.line.description, f"(code {q.data['code']})")
+        if q.data.get("switched_off"):  # D-031 amendment: an item we stopped selling, back again
+            self.label(area, "Switched OFF in PowerSoft", 13, True, color=RED_BG, pady=(4, 0))
         tk.Frame(area, bg="white", height=8).pack()
         row = tk.Frame(area, bg="white")
         row.pack(anchor="w")
-        self.button(row, "YES", lambda: self.answer("yes"), GREEN)
+        yes = {"code": q.data["code"], "switch_on": True} if q.data.get("switched_off") else "yes"
+        self.button(row, "YES", lambda: self.answer(yes), GREEN)
         self.button(row, "NO", lambda: (row.destroy(), self._identify(area, entry, ev, q, allow_new=True)), RED_BG)
 
     def _compare(self, area, title, text, other, suffix=""):
@@ -363,6 +366,14 @@ class App:
                 child.destroy()
             code = "".join(ch for ch in barcode.get() if ch.isdigit())
             codes = catalogue.by_barcode.get(code, [])
+            old = None if codes else catalogue.switched_off_match(code)
+            if old:  # D-031 amendment
+                self.label(found, f"Found:  {catalogue.inactive[old]}   (code {old})", 15, True)
+                self.label(found, "This item is switched off in PowerSoft. It will be switched back on.", 13,
+                           color=RED_BG)
+                self.button(found, "Yes, this one", lambda: self.answer({"code": old, "switch_on": True}), GREEN,
+                            size=12)
+                return
             if not codes:
                 self.label(found, "No item has this barcode. Check it, or search by name below.", 13, color=RED_BG)
                 if allow_new:
@@ -531,7 +542,8 @@ class App:
         show_stocked()  # the form can start at more than 1 piece (D-034)
         (fields["price"] if barcode else fields["barcode"]).focus_set()
         error = self.label(area, "", 12, color=RED_BG, pady=(4, 0))
-        warned = {"barcode": None}  # a barcode on an inactive item is pointed out once; Save again goes ahead
+        use_old = tk.Frame(area, bg="white")
+        use_old.pack(anchor="w")
 
         def save():
             name = fields["description"].get().strip()
@@ -546,12 +558,14 @@ class App:
                 existing = ctx.catalogue.items[ctx.catalogue.by_barcode[code][0]]
                 return error.config(text=f"This barcode is already '{existing.description}' (code {existing.code}). "
                                          "Go back and pick that item instead.")
-            old = ctx.catalogue.inactive_barcodes.get(code)
-            if old and warned["barcode"] != code:
-                warned["barcode"] = code
-                return error.config(text=f"This barcode is on an old item that is switched off: "
-                                         f"'{ctx.catalogue.inactive[old]}' (code {old}). Press Save again to make the "
-                                         "new item, and tell Zein, so he moves the barcode in PowerSoft.")
+            old = ctx.catalogue.switched_off_match(code)
+            if old:  # D-031 amendment: use the old item, switched back on, rather than make a duplicate
+                for child in use_old.winfo_children():
+                    child.destroy()
+                self.button(use_old, f"Use {ctx.catalogue.inactive[old]} (code {old})",
+                            lambda: self.answer({"code": old, "switch_on": True}), GREEN, size=12)
+                return error.config(text=f"We already have this item: '{ctx.catalogue.inactive[old]}' (code {old}). "
+                                         "It is switched off in PowerSoft. Use it (it will be switched back on):")
             if pieces is None or not pieces.is_integer() or pieces < 1:
                 return error.config(text="Pieces in 1 unit must be a whole number (1 if it is a single item).")
             if price is None or price <= 0:
@@ -677,6 +691,13 @@ class App:
 
         self.label(box, "What to do now in PowerSoft:", 15, True).configure(bg=bg)
         step = 1
+        switch = sorted({s for w in waiting for s in w.get("switch_on", [])})
+        if switch:  # D-031 amendment: an item that was switched off is used again
+            self.label(box, f"{step}.  Switch these items back ON (make them active):", 14, True,
+                       pady=(6, 0)).configure(bg=bg)
+            for s in switch:
+                self.label(box, f"      {s}", 13).configure(bg=bg)
+            step += 1
         first = [w for w in waiting if w["items_import"]]
         if first:
             self.label(box, f"{step}.  Items import, Modify NOT ticked:", 14, True, pady=(6, 0)).configure(bg=bg)

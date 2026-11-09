@@ -1003,12 +1003,23 @@ D:\Invoices\                          (Zein makes a desktop shortcut to this fol
 
 **Reasoning.** PowerSoft is the source of truth for items (D-018), and an inactive item is still a PowerSoft item: its code is taken even if nobody sells it. Reading it, but never matching to it, gives both. The 23 extra rows cost nothing in speed.
 
-**Amendment (2026-11-09): an inactive item's barcode is pointed out.** On 6 Nov staff made new item 1745 'REESES PB MILK BAR BLOCK 90GR' (from Athenites) with barcode 034000446612. Item 205, the same chocolate filed under Rainbow by mistake, was inactive and still had that barcode in PowerSoft. The tool rightly didn't match 205, and the new-item form only refused barcodes of *active* items, so it took the barcode. PowerSoft then created 1745 without it (the barcode belonged to 205), so the till couldn't find the new item. Nobody noticed: the name was identical. 23 inactive items in the export still hold a barcode, so it will happen again.
-- The export's inactive items now keep their barcodes (`Catalogue.inactive_barcodes`), still never matched.
-- **New-item form:** such a barcode gets one note, "This barcode is on an old item that is switched off: '...' (code 205). Press Save again to make the new item, and tell Zein, so he moves the barcode in PowerSoft." Pressing Save again makes the item.
-- **Zein's report:** that new item's line says "MOVE THE BARCODE in PowerSoft: it is on inactive item 205 ...".
-- *Not chosen:* refusing the barcode (staff would be stuck: the old item can't be picked, and the barcode is the right one); switching the old item back on automatically (the tool doesn't change PowerSoft items, D-001; and here the new item was the right one to keep, since 205 had the wrong supplier).
+**Amendment (2026-11-09): an item we stopped selling, back again, is switched back on, not made again.**
 
+*Context.* On 6 Nov an Athenites line 'REESES PB MILK BAR BLOCK 90GR', barcode 034000446612, was "not found", and staff made new item 1745. Item 205, the same chocolate, was inactive (we had stopped selling it, and it was filed under Rainbow by mistake) and still had that barcode in PowerSoft. The tool rightly didn't match 205 (D-031), and the new-item form only refused barcodes of active items. PowerSoft then made 1745 without the barcode, because 205 had it, so the till couldn't find the new item. Nobody noticed: the names were identical. PowerSoft can't delete items, so the duplicate stays (Zein moved the barcode to 1745 by hand). 23 inactive items in the export still hold a barcode.
+
+*Decision.* When a barcode belongs to an inactive item, **that item is offered, to be switched back on**:
+- **Only on a barcode** (the one printed on the invoice line, one scanned into "This item was not found", or one typed into the new-item form), never on a name, and not when an active item has the same name: then the inactive one is a duplicate retired on purpose (Coca-Cola 17, D-031).
+- Staff see "Is it this item?" with "Switched OFF in PowerSoft"; YES uses the old item. In "not found" a scanned barcode shows the old item with "Yes, this one"; in the new-item form, a green "Use <item> (code 205)" button instead of saving a duplicate.
+- From that YES the tool treats the item as active (`data/state/switched_on.txt`), so the next invoice doesn't ask again before a new export; once an export shows it active, it drops out.
+- **Whoever uploads switches it back on in PowerSoft first** (Zein or the manager: a tick box). The Done screen lists it as step 1, "Switch these items back ON (make them active)", before the Items import and the Purchase order; its Excel row is red ("Switched OFF in PowerSoft: switch it back on before uploading"); Zein's report says "SWITCH ON in PowerSoft before uploading".
+
+*Alternatives considered.*
+- *Make a new item and tell Zein to move the barcode* (built first, the same day, then replaced: Zein's call). It leaves a duplicate in PowerSoft for good, and Zein has to act each time.
+- *Send the invoice to Zein until he switches the item on.* Rejected: the manager uploads and can tick the box himself; the whole invoice would wait for one line.
+- *Offer inactive items on a name match too.* Rejected: inactive items are often duplicates retired on purpose; a barcode is on the product itself.
+- *The tool switches the item on.* Not possible and not wanted: the tool never changes PowerSoft (D-001). Whether PowerSoft takes a Purchase order line for an inactive item isn't known, so switching on comes first.
+
+*Reasoning.* An inactive item that comes back is still the right item, with its history; a second item for the same product splits its sales and stock. On the morning of 6 Nov, this would have offered 205 for that line and nothing else among the invoice's 82 lines.
 
 ## D-032: An invoice the tool fails on waits for Zein; the others carry on
 

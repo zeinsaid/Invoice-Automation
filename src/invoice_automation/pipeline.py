@@ -44,6 +44,9 @@ FLAG_ITEMS = Path("data/flag_items.csv")  # items that always need a look, e.g. 
 READY_DIR = Path(os.environ.get("INVOICE_READY", "output/Ready to upload"))
 UPLOADED_DIR = Path("output/Uploaded")  # files staff marked as uploaded, by date
 TO_UPLOAD = STATE_DIR / "to_upload.json"  # file -> its upload steps, until it is marked as uploaded
+SWITCHED_ON = STATE_DIR / "switched_on.txt"  # inactive items staff said a line is: active again (D-031 amendment)
+SWITCHED_OFF = ("This item is switched off in PowerSoft. If it is this item, press YES: it will be switched back "
+                "on, so no new item is made.")
 SCANS_DIR = Path("processed")  # scans are moved here from input/ (D-002)
 
 TOTAL_TOLERANCE = 0.05  # euros
@@ -181,6 +184,8 @@ class Context:
         catalogue = Catalogue.load()
         for item in _load_new_items():
             catalogue.add_local(item)
+        for code in _load_switched_on():  # until an export shows them active (D-031 amendment)
+            catalogue.switch_on(code)
         table = SupplierItems.load()
         if not LEGACY_BARCODES_DONE.exists():  # once per install (D-028)
             names = {code: item.description for code, item in catalogue.items.items()}
@@ -328,6 +333,8 @@ def _line(line: InvoiceLine, inv: Invoice, ev: Evaluation, ctx: Context) -> Ques
                         next(f.message for f in line.flags if f.kind == UNREADABLE), line, {"labels": ev.labels})
 
     item_answer = a.get(f"item:{row}")
+    if isinstance(item_answer, dict) and item_answer.get("switch_on"):
+        ctx.catalogue.switch_on(item_answer["code"])  # staff said it is this inactive item (D-031 amendment)
     if isinstance(item_answer, dict) and item_answer.get("code") not in (None, *ctx.catalogue.items):
         item_answer = None  # the item was made inactive since (a new export): asked again
     if isinstance(item_answer, dict) and "code" in item_answer:
@@ -348,6 +355,11 @@ def _line(line: InvoiceLine, inv: Invoice, ev: Evaluation, ctx: Context) -> Ques
     if m.method == "new_item":
         return None
     if m.item_code is None:
+        old = ctx.catalogue.switched_off_match(usable_barcode(line))
+        if old:  # D-031 amendment: an item we stopped selling, back again
+            return Question(f"item:{row}", "item", "Is it this item?", SWITCHED_OFF, line,
+                            {"code": old, "description": ctx.catalogue.inactive[old], "candidates": m.candidates,
+                             "switched_off": True})
         return Question(f"item:{row}", "identify", "This item was not found",
                         "Scan or type the barcode of ONE piece, or search for it by name.", line,
                         {"candidates": m.candidates})
@@ -455,6 +467,7 @@ class Result:
     price_changes: list[tuple[str, str, float, float]] = field(default_factory=list)
     confirmed: list[str] = field(default_factory=list)  # what staff answered, for Zein's report
     skipped: list[str] = field(default_factory=list)  # lines left out as not for the shop (D-025)
+    switch_on: list[str] = field(default_factory=list)  # "205 REESES ...": switch back on in PowerSoft first
 
     @property
     def new_items(self) -> int:
@@ -511,10 +524,8 @@ def _finalize(ev: Evaluation, ctx: Context, output_file: Path) -> Result:
             if row_key not in issued:
                 form = a[f"item:{row_key}"]["new"]
                 issued[row_key] = _issue_new_item(new_lines[row_key], inv, form, m.pack_factor, ctx.catalogue).code
-                note = ctx.catalogue.inactive_barcode_note(form["barcode"])
                 confirmed.append(f"New item {issued[row_key]} '{form['description']}' (from '{line.description}'), "
-                                 f"retail {float(form['price']):.2f}, barcode {form['barcode']}"
-                                 + (f". {note}" if note else ""))
+                                 f"retail {float(form['price']):.2f}, barcode {form['barcode']}")
             m.item_code = issued[row_key]
         elif "staff" in m.method or "+pack" in m.method:
             # A linked pack (D-005 amendment) went in without a question, unless staff answered its size.
@@ -535,6 +546,8 @@ def _finalize(ev: Evaluation, ctx: Context, output_file: Path) -> Result:
     for row in rows:
         row.cost = amounts[row.item.code] / row.quantity if row.quantity else 0.0
         _check_cost(row, inv, ctx.table, changes)
+        if row.item.code in ctx.catalogue.switched_on:
+            row.flags.append(Flag(RED, "item", "Switched OFF in PowerSoft: switch it back on before uploading."))
         if row.item.code in issued.values():  # D-011: a new item is always red, so it gets a look before upload
             row.flags.append(Flag(RED, "new", "NEW item: check the name, barcode, price, category and brand "
                                               "before uploading."))
@@ -548,15 +561,29 @@ def _finalize(ev: Evaluation, ctx: Context, output_file: Path) -> Result:
     _record_price_changes(inv, changes)
     skipped = [f"Line {line.line_no} '{line.description}', {line.amount_excl_vat * (1 + line.vat_rate / 100):.2f} "
                "incl. VAT" for line in ev.skipped]
-    result = Result(inv, rows, output_file, changes, confirmed, skipped)
+    switch_on = [f"{row.item.code} {row.item.description}" for row in rows if row.item.code in ctx.catalogue.switched_on]
+    result = Result(inv, rows, output_file, changes, confirmed, skipped, switch_on)
+    _save_switched_on(ctx.catalogue.switched_on)
     waiting = _load_to_upload()
-    waiting[output_file.name] = {"items_import": result.items_import, "made": str(date.today())}
+    waiting[output_file.name] = {"items_import": result.items_import, "made": str(date.today()), "switch_on": switch_on}
     _save_to_upload(waiting)
     # Last: once it is recorded, running the invoice again asks "already done" (D-018).
     _record_processed(inv, output_file)
     ev.entry.status = DONE
     ev.entry.output = output_file.name
     return result
+
+
+def _load_switched_on() -> list[str]:
+    return SWITCHED_ON.read_text(encoding="utf-8").split() if SWITCHED_ON.exists() else []
+
+
+def _save_switched_on(codes: set[str]) -> None:
+    """Remembered, so the next invoice doesn't ask again before a new export shows the item active. Once it
+    does, the code isn't inactive any more, switch_on does nothing, and it drops out of the file."""
+    if codes or SWITCHED_ON.exists():
+        text = "\n".join(sorted(codes))
+        save_atomic(SWITCHED_ON, lambda tmp: tmp.write_text(text, encoding="utf-8"))
 
 
 # --- Uploads: what is waiting in 'Ready to upload', and marking it as uploaded -------------------------
@@ -577,7 +604,8 @@ def waiting_uploads() -> list[dict]:
     files = sorted((f for f in READY_DIR.glob("*.xlsx") if not f.name.startswith("~$")),
                    key=lambda f: (waiting.get(f.name, {}).get("made", ""), f.name)) if READY_DIR.exists() else []
     return [{"file": f.name, "items_import": waiting.get(f.name, {}).get("items_import", ""),
-             "made": waiting.get(f.name, {}).get("made", "")} for f in files]
+             "made": waiting.get(f.name, {}).get("made", ""), "switch_on": waiting.get(f.name, {}).get("switch_on", [])}
+            for f in files]
 
 
 def mark_uploaded(names: list[str]) -> None:

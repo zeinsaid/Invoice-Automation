@@ -98,6 +98,31 @@ def test_total_check_takes_the_unprinted_discount_into_account():
         assert ev.questions == [] and ev.outcome == "questions"
 
 
+# --- An item we stopped selling, back again (D-031 amendment) -----------------------------------------
+
+def _switched_off(tmp_path, answers):
+    from invoice_automation.supplier_items import SupplierItems
+    old = Item("5", "CHOC BAR 90GR", "5290000000017", 5, 1.00, 2.00, "S", "", "", True)
+    ctx = pipeline.Context(Catalogue({}, {}, {}, {"5": old}), SupplierItems([], tmp_path / "t.xlsx"), {})
+    line = InvoiceLine("1", "CHOC BAR 90G", "5290000000017", 12, 12.0, 5, pieces_known=True)
+    line.page, line.row_index = 0, 3
+    inv = Invoice("S", "Test", "INV1", None, [line], 12.6, 12.6, "x.pdf", [0])
+    ev = Evaluation(Entry("x.pdf", [0], "", answers=answers), invoice=inv, answer_keys={line.key: line.key})
+    return pipeline._line(line, inv, ev, ctx), ev, ctx
+
+
+def test_an_inactive_item_with_the_lines_barcode_is_offered(tmp_path):
+    q, _, ctx = _switched_off(tmp_path, {})
+    assert (q.kind, q.id, q.data["code"], q.data["switched_off"]) == ("item", "item:0:3", "5", True)
+    assert "switched off" in q.detail and "5" not in ctx.catalogue.items  # nothing changes until staff say YES
+
+
+def test_yes_switches_the_inactive_item_back_on(tmp_path):
+    q, ev, ctx = _switched_off(tmp_path, {"item:0:3": {"code": "5", "switch_on": True}})
+    assert q is None and ev.lines[0][1].item_code == "5"
+    assert ctx.catalogue.switched_on == {"5"}
+
+
 # --- A cost far from what we pay is asked about (D-033) ---------------------------------------------
 
 def _monster(tmp_path, answers, pieces_known=False):

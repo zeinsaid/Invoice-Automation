@@ -51,12 +51,15 @@ def _number(s: str) -> float | None:
 
 class Catalogue:
     def __init__(self, items: dict[str, Item], category_codes: dict[str, str], supplier_codes: dict[str, str],
-                 inactive: dict[str, str] | None = None, inactive_barcodes: dict[str, str] | None = None):
+                 inactive: dict[str, Item] | None = None):
         self.items = items  # active items only
-        self.inactive = inactive or {}  # inactive item code -> name: never matched, code never issued again (D-031)
-        # barcode -> inactive item code. PowerSoft keeps an inactive item's barcode, so a new item can't take it
-        # (Reese's 1745 got no barcode because inactive 205 had it, November 2026): staff and Zein are told.
-        self.inactive_barcodes = inactive_barcodes or {}
+        # Inactive items (D-031): never matched by name, and their codes are never issued again. One whose
+        # barcode is scanned is offered, to be switched back on (D-031 amendment): a new item would be a
+        # duplicate PowerSoft can't delete, and couldn't take the barcode anyway.
+        self.inactive_items = inactive or {}
+        self.inactive = {code: item.description for code, item in self.inactive_items.items()}  # code -> name
+        self.inactive_barcodes = {item.barcode: code for code, item in self.inactive_items.items() if item.barcode}
+        self.switched_on: set[str] = set()  # inactive in the export, but staff said it is this item: switched back on
         self.category_codes = category_codes  # category name -> code
         self.supplier_codes = supplier_codes  # supplier name -> code
         self.by_barcode: dict[str, list[str]] = {}
@@ -92,13 +95,12 @@ class Catalogue:
                 break
         if not usable:
             raise ValueError(" ".join(warnings))
-        path, items, inactive, inactive_barcodes = usable[0]
+        path, items, inactive = usable[0]
         if len(usable) == 2 and len(items) < SHRUNK * len(usable[1][1]):
             warnings.append(f"{path.name} was NOT used: it has {len(items)} items, the one before had "
                             f"{len(usable[1][1])}, so it looks cut off. Export again.")
-            path, items, inactive, inactive_barcodes = usable[1]
-        catalogue = cls(items, _category_codes(powersoft_dir), _supplier_codes(powersoft_dir), inactive,
-                        inactive_barcodes)
+            path, items, inactive = usable[1]
+        catalogue = cls(items, _category_codes(powersoft_dir), _supplier_codes(powersoft_dir), inactive)
         catalogue.export_name, catalogue.warnings = path.name, warnings
         return catalogue
 
@@ -148,13 +150,25 @@ class Catalogue:
         twins = [c for c, k in self.name_keys.items() if k == key and c in self.items] if key else []
         return twins[0] if len(twins) == 1 else None
 
-    def inactive_barcode_note(self, barcode: str) -> str:
-        """For a new item's barcode that PowerSoft has on an inactive item: what Zein must do, else ''."""
-        code = self.inactive_barcodes.get(barcode)
-        if not code:
-            return ""
-        return (f"MOVE THE BARCODE in PowerSoft: it is on inactive item {code} '{self.inactive[code]}', "
-                "so the new item gets no barcode and the till won't find it")
+    def switched_off_match(self, barcode: str) -> str | None:
+        """The inactive item with this barcode, to offer to switch back on; None if there is none, or if an
+        active item has the same name (then the inactive one was a duplicate retired on purpose: Coca-Cola 17)."""
+        code = self.inactive_barcodes.get(barcode) if barcode else None
+        return code if code and not self.active_twin(code) else None
+
+    def switch_on(self, code: str) -> bool:
+        """Treat an inactive item as active again: staff said an invoice line is this item, and PowerSoft gets it
+        switched back on before the upload. Until an export shows it active, it is listed in `switched_on`."""
+        item = self.inactive_items.pop(code, None)
+        if item is None:
+            return False
+        del self.inactive[code]
+        if self.inactive_barcodes.get(item.barcode) == code:
+            del self.inactive_barcodes[item.barcode]
+        self.items[code] = item
+        self._index(item)
+        self.switched_on.add(code)
+        return True
 
     def highest_numeric_code(self) -> int:
         """Inactive items count: PowerSoft still has their codes (D-031)."""
@@ -199,10 +213,10 @@ def _take_in_latest(powersoft_dir: Path) -> None:
         old.unlink()
 
 
-def _read_export(path: Path) -> tuple[dict[str, Item], dict[str, str], dict[str, str]]:
-    """The active items, the names of inactive ones by code, and inactive items' barcodes (barcode -> code).
-    An export without the Active column (made with PowerSoft's default 'active only' filter) has only active items."""
-    items, inactive, inactive_barcodes = {}, {}, {}
+def _read_export(path: Path) -> tuple[dict[str, Item], dict[str, Item]]:
+    """The active items and the inactive ones, by code. An export without the Active column (made with
+    PowerSoft's default 'active only' filter) has only active items."""
+    items, inactive = {}, {}
     # PowerSoft exports in cp1253 (Greek Windows). Row 2 is a sub-header ('Incl') and is skipped.
     with path.open(encoding="cp1253", newline="") as f:
         reader = csv.reader(f)
@@ -218,12 +232,8 @@ def _read_export(path: Path) -> tuple[dict[str, Item], dict[str, str], dict[str,
             code = row[col["Item Code"]].strip()
             if not code or row[col["Item Description"]] == "":
                 continue
-            if "Active" in col and row[col["Active"]].strip().lower() == "no":
-                inactive[code] = row[col["Item Description"]].strip()
-                if row[col["Barcode"]].strip():
-                    inactive_barcodes[row[col["Barcode"]].strip()] = code
-                continue
-            items[code] = Item(
+            active = "Active" not in col or row[col["Active"]].strip().lower() != "no"
+            (items if active else inactive)[code] = Item(
                 code=code,
                 description=row[col["Item Description"]].strip(),
                 barcode=row[col["Barcode"]].strip(),
@@ -237,7 +247,7 @@ def _read_export(path: Path) -> tuple[dict[str, Item], dict[str, str], dict[str,
             )
     if not items:
         raise ValueError("it has no items.")
-    return items, inactive, inactive_barcodes
+    return items, inactive
 
 
 def _category_codes(powersoft_dir: Path) -> dict[str, str]:

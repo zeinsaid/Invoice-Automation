@@ -249,6 +249,7 @@ class Session:
                        f"total {r.invoice.computed_total:.2f}{timing})")
             out.append(f"   upload: Items import first ({r.items_import}), then Purchase order" if r.items_import
                        else "   upload: Purchase order only")
+            out += [f"   SWITCH ON in PowerSoft before uploading: {s}" for s in r.switch_on]
             out += [f"   {c}" if c.startswith("pack: ") else f"   staff: {c}" for c in r.confirmed]
             out += [f"   not for the shop: {s}" for s in r.skipped]
             out += [f"   price: {code} {name}: {old:.2f} -> {new:.3f} ({(new - old) / old * 100:+.0f}%)"
