@@ -531,6 +531,7 @@ class App:
         show_stocked()  # the form can start at more than 1 piece (D-034)
         (fields["price"] if barcode else fields["barcode"]).focus_set()
         error = self.label(area, "", 12, color=RED_BG, pady=(4, 0))
+        warned = {"barcode": None}  # a barcode on an inactive item is pointed out once; Save again goes ahead
 
         def save():
             name = fields["description"].get().strip()
@@ -545,6 +546,12 @@ class App:
                 existing = ctx.catalogue.items[ctx.catalogue.by_barcode[code][0]]
                 return error.config(text=f"This barcode is already '{existing.description}' (code {existing.code}). "
                                          "Go back and pick that item instead.")
+            old = ctx.catalogue.inactive_barcodes.get(code)
+            if old and warned["barcode"] != code:
+                warned["barcode"] = code
+                return error.config(text=f"This barcode is on an old item that is switched off: "
+                                         f"'{ctx.catalogue.inactive[old]}' (code {old}). Press Save again to make the "
+                                         "new item, and tell Zein, so he moves the barcode in PowerSoft.")
             if pieces is None or not pieces.is_integer() or pieces < 1:
                 return error.config(text="Pieces in 1 unit must be a whole number (1 if it is a single item).")
             if price is None or price <= 0:

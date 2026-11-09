@@ -10,6 +10,10 @@ of the shop PC's 'Admin only\\data' folder, and this lists the learned rows wort
   - both print a size and the sizes differ (Red Bull 4x250ML learned as the 355ML can, November 2026)
   - the cost per piece is far from PowerSoft's cost (wrong item, or wrong pieces per unit)
 
+It also lists invoices marked as uploaded whose new costs never reached PowerSoft: their Purchase order was
+most likely not uploaded, so their stock is missing too (Athenites 1000756371, November 2026: only the Items
+import was done).
+
 A row on this list isn't necessarily wrong (supplier names are abbreviated: 'N/VALLEY MUES/BAR'); Zein
 decides. A wrong row is deleted in Excel (Admin.bat, option 5), so that line is asked again next time.
 Rows from the old supplier lists (names, and unconfirmed barcodes, D-028) are skipped unless --all is given.
@@ -18,8 +22,11 @@ Usage:  uv run python scripts/check_learned.py "<copy of Admin only\\data>" [--a
 """
 
 import argparse
+import csv
+import json
 import re
 import sys
+from datetime import date
 from pathlib import Path
 
 from rapidfuzz import fuzz
@@ -33,6 +40,7 @@ BETTER_BY = 15  # another item's name scores this much higher than the chosen on
 COST_RATIO = 1.5  # cost per piece more than 1.5x PowerSoft's, or less than 1/1.5
 SIZE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(ML|CL|LTR|LT|L|KG|GR|G)\b")
 TO_ML_OR_G = {"ML": 1, "CL": 10, "L": 1000, "LT": 1000, "LTR": 1000, "G": 1, "GR": 1, "KG": 1000}
+SAME_COST = 0.011  # PowerSoft keeps 2 decimals: 0.575 is stored as 0.57 or 0.58
 
 
 def main() -> None:
@@ -89,6 +97,45 @@ def main() -> None:
     for _, where, why in sorted(found, key=lambda f: f[0]):
         print(f"{where}\n    {why}")
     print(f"\n{len(found)} of {len(table.rows)} rows to look at.")
+
+    missing = not_uploaded(args.data / "state", catalogue)
+    print("\nInvoices marked as uploaded whose new costs are not in PowerSoft (Purchase order not uploaded?):")
+    for line in missing or ["   none"]:
+        print(line)
+
+
+def not_uploaded(state: Path, catalogue: Catalogue) -> list[str]:
+    """Invoices whose Purchase order seems never to have been uploaded: the export has none of the costs it
+    should have set. Only costs no later invoice changed again count, and only invoices finished before the
+    export was made and already marked as uploaded (to_upload.json lists the rest)."""
+    m = re.search(r"\d{4}-\d{2}-\d{2}", catalogue.export_name)
+    exported = date.fromisoformat(m.group()) if m else date.today()
+    finished = {}
+    if (state / "processed_invoices.csv").exists():
+        with (state / "processed_invoices.csv").open(encoding="utf-8", newline="") as f:
+            finished = {(r["supplier"], r["invoice"]): r for r in csv.DictReader(f)}
+    waiting = set(json.loads((state / "to_upload.json").read_text(encoding="utf-8"))) \
+        if (state / "to_upload.json").exists() else set()
+    latest = {}  # item code -> the last cost change the tool made to it
+    if (state / "price_changes.csv").exists():
+        with (state / "price_changes.csv").open(encoding="utf-8", newline="") as f:
+            for r in csv.DictReader(f):
+                latest[r["item_code"]] = r
+    by_invoice: dict[tuple[str, str], list[dict]] = {}
+    for code, r in latest.items():
+        if code in catalogue.items and not catalogue.items[code].local:
+            by_invoice.setdefault((r["supplier"], r["invoice"]), []).append(r)
+    out = []
+    for key, changes in by_invoice.items():
+        done = finished.get(key)
+        if not done or done["file"] in waiting or date.fromisoformat(done["processed"][:10]) >= exported:
+            continue
+        if all(abs(catalogue.items[r["item_code"]].cost - float(r["new_cost"])) > SAME_COST for r in changes):
+            r = changes[0]
+            out.append(f"   {done['file']}: none of its {len(changes)} new costs are in PowerSoft (e.g. "
+                       f"{r['item_code']} {r['description']}: {catalogue.items[r['item_code']].cost:.2f}, "
+                       f"should be {float(r['new_cost']):.2f}). Upload it as a Purchase order if it isn't there.")
+    return out
 
 
 def _similarity(a: str, b: str) -> float:

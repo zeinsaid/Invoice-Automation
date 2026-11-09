@@ -82,7 +82,11 @@
 <p>A wrong staff answer ("Is it this item? YES" on the wrong flavour) is remembered and used from then on without a question.
 With the new export, also copy <code>Admin only\data\</code> to your PC and ask Claude to run
 <code>scripts\check_learned.py</code> on it. It lists answers worth a look (names with different words, a better-fitting item,
-a cost far from PowerSoft's). Delete the wrong ones at the shop with <code>Admin.bat</code> &rarr; 5.</p>
+a cost far from PowerSoft's, a different size). Delete the wrong ones at the shop with <code>Admin.bat</code> &rarr; 5.
+It also lists invoices marked as uploaded whose costs never reached PowerSoft: upload their Excel from
+<code>output\Uploaded\&lt;date&gt;\</code> as a Purchase order, if PowerSoft doesn't have it.</p>
+<p>A report line <b>"MOVE THE BARCODE in PowerSoft"</b>: a new item's barcode is still on an inactive item. Take it off the
+inactive item and add it to the new one, or the till won't find the new item.</p>
 
 <h2>Other PowerSoft files</h2>
 <ul>

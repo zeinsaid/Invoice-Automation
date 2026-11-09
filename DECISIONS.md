@@ -875,6 +875,7 @@ D:\Invoices\                          (Zein makes a desktop shortcut to this fol
 - **Less noise:** a row matched on PowerSoft's own barcode no longer lists spelling differences ('PAPRICA' vs 'PAPRIKA'): the barcode settles which item it is. A clearly better-fitting name, a far-off cost or a different size is still listed.
 - Result: 77 rows instead of 125, with all four size mismatches at the top of the list (Red Bull and Malibu, plus Nutella 750 vs 700 and Sour Patch 120 vs 130 for a shelf check).
 *Why not a stricter cost check instead (D-033 asks at 2×):* both mistakes were about 1.3× off, the same as a normal price rise. Asking at 1.3× would question every price change; a monthly size check costs staff nothing.
+- **Purchase orders that weren't uploaded.** Athenites 1000756371 (6 Nov, 63 new items) was marked as uploaded after only its Items import: none of its 6 cost changes reached PowerSoft, while every other invoice's did, and none of its stock went in. Found only because the Malibu cost hadn't changed. The check now lists every invoice marked as uploaded, finished before the export was made, for which *none* of the costs it set (and no later invoice changed again) are in the export: "Purchase order not uploaded?". On this month's data it lists exactly that invoice. *Why "none" and not "some":* Zein or the manager may correct one cost by hand afterwards; all of them missing only happens when the upload didn't. *Why not in the tool itself:* the tool can't see PowerSoft, only the export, which Zein brings monthly.
 
 **Reasoning.** Learning is what makes the tool quicker every week, so a wrong answer has to be cheap to find and remove, not prevented by asking more. Most invoices will now be done by one experienced member of staff, which already lowers the risk. The check script finds the mistakes no automatic check sees (same price, similar name), and deleting the row returns the product to "ask".
 
@@ -1001,6 +1002,12 @@ D:\Invoices\                          (Zein makes a desktop shortcut to this fol
 - *Leave answers on inactive items and ask again.* Rejected for Coca-Cola: staff would be asked about Coca-Cola on every supplier, and might make a new item.
 
 **Reasoning.** PowerSoft is the source of truth for items (D-018), and an inactive item is still a PowerSoft item: its code is taken even if nobody sells it. Reading it, but never matching to it, gives both. The 23 extra rows cost nothing in speed.
+
+**Amendment (2026-11-09): an inactive item's barcode is pointed out.** On 6 Nov staff made new item 1745 'REESES PB MILK BAR BLOCK 90GR' (from Athenites) with barcode 034000446612. Item 205, the same chocolate filed under Rainbow by mistake, was inactive and still had that barcode in PowerSoft. The tool rightly didn't match 205, and the new-item form only refused barcodes of *active* items, so it took the barcode. PowerSoft then created 1745 without it (the barcode belonged to 205), so the till couldn't find the new item. Nobody noticed: the name was identical. 23 inactive items in the export still hold a barcode, so it will happen again.
+- The export's inactive items now keep their barcodes (`Catalogue.inactive_barcodes`), still never matched.
+- **New-item form:** such a barcode gets one note, "This barcode is on an old item that is switched off: '...' (code 205). Press Save again to make the new item, and tell Zein, so he moves the barcode in PowerSoft." Pressing Save again makes the item.
+- **Zein's report:** that new item's line says "MOVE THE BARCODE in PowerSoft: it is on inactive item 205 ...".
+- *Not chosen:* refusing the barcode (staff would be stuck: the old item can't be picked, and the barcode is the right one); switching the old item back on automatically (the tool doesn't change PowerSoft items, D-001; and here the new item was the right one to keep, since 205 had the wrong supplier).
 
 
 ## D-032: An invoice the tool fails on waits for Zein; the others carry on

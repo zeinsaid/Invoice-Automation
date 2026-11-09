@@ -511,8 +511,10 @@ def _finalize(ev: Evaluation, ctx: Context, output_file: Path) -> Result:
             if row_key not in issued:
                 form = a[f"item:{row_key}"]["new"]
                 issued[row_key] = _issue_new_item(new_lines[row_key], inv, form, m.pack_factor, ctx.catalogue).code
+                note = ctx.catalogue.inactive_barcode_note(form["barcode"])
                 confirmed.append(f"New item {issued[row_key]} '{form['description']}' (from '{line.description}'), "
-                                 f"retail {float(form['price']):.2f}, barcode {form['barcode']}")
+                                 f"retail {float(form['price']):.2f}, barcode {form['barcode']}"
+                                 + (f". {note}" if note else ""))
             m.item_code = issued[row_key]
         elif "staff" in m.method or "+pack" in m.method:
             # A linked pack (D-005 amendment) went in without a question, unless staff answered its size.

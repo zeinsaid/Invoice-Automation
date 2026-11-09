@@ -73,6 +73,20 @@ def test_inactive_items_are_never_matched_and_their_codes_stay_taken(powersoft):
     assert [r.item_code for r in rows] == ["5449000000439", "3"] and "moved" in cat.warnings[0]
 
 
+def test_a_new_items_barcode_on_an_inactive_item_is_pointed_out(powersoft):
+    # PowerSoft keeps an inactive item's barcode, so a new item can't take it (Reese's, November 2026).
+    with (powersoft / "items_export_2026-10-01.csv").open("w", encoding="cp1253", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(EXPORT_COLUMNS[:3] + ["Active"] + EXPORT_COLUMNS[3:])
+        w.writerow(["5", "CHOC BAR 90GR", "5290000000017", "No", "5%", "1.00", "2.00", "S", "", "C", "Yes"])
+        w.writerow(["6", "COLA", "5290000000024", "Yes", "19%", "1.00", "2.00", "S", "", "C", "Yes"])
+    cat = Catalogue.load(powersoft)
+    assert cat.inactive_barcodes == {"5290000000017": "5"}
+    assert "5290000000017" not in cat.by_barcode  # never matched (D-031)
+    assert "inactive item 5 'CHOC BAR 90GR'" in cat.inactive_barcode_note("5290000000017")
+    assert cat.inactive_barcode_note("5290000000024") == "" == cat.inactive_barcode_note("5290000000031")
+
+
 def test_failed_save_keeps_the_old_file(tmp_path):
     path = tmp_path / "learned.txt"
     path.write_text("months of answers")
