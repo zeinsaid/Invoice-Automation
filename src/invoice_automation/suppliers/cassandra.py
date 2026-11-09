@@ -7,13 +7,15 @@ Columns: PRODUCT | FACT | QTY | SUB | PRC | GROSS | DISC % | VAT % | TOTAL
 - FACT = packs per carton, QTY = cartons, SUB = loose packs. Pieces = QTY x FACT + SUB (D-005).
 - PRC is the price of one carton before discount, excl. VAT. GROSS = QTY x PRC.
 - TOTAL is incl. VAT, after the discount (e.g. VEEV devices at 70% off).
-Long invoices are scanned sideways on A3; DI detects the rotation.
+Long invoices are scanned sideways on A3; DI detects the rotation. A longer till roll is scanned in two or
+more pieces (2220210014739, Nov 2026): the later pieces have no header row (continuation_rows), and a piece
+may start with the last lines of the one before, which are dropped (OVERLAPPING_PAGES, D-004 amendment 2026-11-09).
 """
 
 import re
 import sys
 
-from ..layout import normalise_barcode, parse_number
+from ..layout import headless_rows, normalise_barcode, parse_number
 from ..model import InvoiceLine
 from . import base
 
@@ -39,6 +41,11 @@ EDITABLE = {"fact": "FACT (packs per carton)", "qty": "QTY (cartons)", "sub": "S
 NUMBER = [r"(\d{10,})\s*\(\s*[ΑA][ΡP]\.?\s*[ΕE][ΚK]"]  # '2220210014484 (Αρ. Εκτύπωσης: 2)'
 DATE = [r"ΠΑΡΑΣΤΑΤΙΚΟΥ:?\s*(\d{2}/\d{2}/\d{4})"]
 TOTAL = [r"TOTAL EURO\s*(\d+[.,]\d{2})"]
+OVERLAPPING_PAGES = True
+# A piece without a header row: the eight number columns, right to left, are always the same. Everything to
+# their left is the product (the scanner may split it into two cells, or add an empty column among the numbers).
+CONTINUATION_COLUMNS = (9, 10, 11)
+CONTINUATION_TAIL = ["fact", "qty", "sub", "price", "gross", "disc", "vat", "total"]
 
 
 def matches(page_text: str) -> bool:
@@ -48,6 +55,16 @@ def matches(page_text: str) -> bool:
 
 def parse(result, source, page_index, corrections=None):
     return base.parse(sys.modules[__name__], result, source, page_index, corrections)
+
+
+def continuation_rows(result) -> list[dict]:
+    """Rows of a piece of the till roll that has no header row. Rows that aren't items (the end of a
+    product cut off at the top, a totals table with the same width) have no quantity and no total, and
+    row_to_line drops them."""
+    rows = headless_rows(result, CONTINUATION_COLUMNS, CONTINUATION_TAIL, skip_empty=True)
+    for row in rows:
+        row["product"] = row.pop("_lead")
+    return rows
 
 
 def row_to_line(row) -> InvoiceLine | None:

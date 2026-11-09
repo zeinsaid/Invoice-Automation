@@ -54,6 +54,12 @@ class InvoiceLine:
         """Identifies the line across re-evaluations: answers are stored under it."""
         return f"{self.page}:{self.row_index}"
 
+    @property
+    def fingerprint(self) -> str:
+        """Which product the line is, as printed: kept with each answer, so an answer can't land on another
+        line if an update reads the page's rows differently (D-032 amendment)."""
+        return self.barcode or " ".join(self.description.upper().split())
+
 
 @dataclass
 class Invoice:
@@ -70,3 +76,4 @@ class Invoice:
     page_angle: float = 0.0  # first page's rotation, degrees clockwise; 90 for a page scanned sideways
     discount: float = 0.0  # a discount on the whole invoice the paper doesn't print (0.15); totals on the paper are before it
     vat_per_line: bool = False  # the supplier rounds each line's VAT, not each rate's (Hell)
+    overlapping_pages: bool = False  # a long till roll scanned in pieces: a page may repeat the last one's lines (Cassandra)

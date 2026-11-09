@@ -198,7 +198,8 @@ def find_table(result: dict, columns: dict[str, str], required: str) -> list[dic
     return []
 
 
-def headless_rows(result: dict, column_counts: tuple[int, ...], tail: list[str]) -> list[dict[str, Cell]]:
+def headless_rows(result: dict, column_counts: tuple[int, ...], tail: list[str],
+                  skip_empty: bool = False) -> list[dict[str, Cell]]:
     """Rows of a line table that has no header row, read by position (D-004 amendment 2).
 
     Continuation pages (Athenites page 2) repeat the table without its column names, and the
@@ -207,6 +208,10 @@ def headless_rows(result: dict, column_counts: tuple[int, ...], tail: list[str])
     joined into "_lead" for the profile to take apart. Only tables with one of `column_counts` columns
     are read (the scanner splits the left part differently from page to page). Rows that aren't item
     rows are left for the profile to reject.
+
+    With `skip_empty`, the scanner may also add an empty column among the numbers, in a different place
+    on each row (Cassandra, Nov 2026): a row with at least len(`tail`) filled cells has its last filled
+    cells named by `tail`, and empty cells are passed over. Rows with fewer are read by position.
     """
     words = _word_spans(result)
     rows = []
@@ -215,10 +220,14 @@ def headless_rows(result: dict, column_counts: tuple[int, ...], tail: list[str])
         if column_count not in column_counts:
             continue
         grid = _grid(table)
-        lead_columns = range(column_count - len(tail))
-        mapping = {column_count - len(tail) + i: name for i, name in enumerate(tail)}
-        for r, row in zip(sorted(grid), _rows(grid, mapping, words, after=-1)):
-            lead = [grid[r][c] for c in lead_columns if c in grid[r]]
+        for r in sorted(grid):
+            mapping = {column_count - len(tail) + i: name for i, name in enumerate(tail)}  # by position
+            if skip_empty:
+                filled = [c for c in sorted(grid[r]) if clean_text(grid[r][c]["content"])]
+                if len(filled) >= len(tail):
+                    mapping = dict(zip(filled[-len(tail):], tail))
+            row = _rows({r: grid[r]}, mapping, words, after=-1)[0]
+            lead = [grid[r][c] for c in sorted(grid[r]) if c < min(mapping)]
             confs = [c for c in (_cell_confidence(cell, words) for cell in lead) if c is not None]
             row["_lead"] = Cell(clean_text(" ".join(cell["content"] for cell in lead)), min(confs) if confs else None)
             row["_header"] = Cell("", None)

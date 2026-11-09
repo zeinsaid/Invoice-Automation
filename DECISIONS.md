@@ -137,6 +137,12 @@ My current expectation: start with `prebuilt-invoice` for supplier and totals, u
 
 **Amendment (2026-10-20, first run at the shop): page 2 comes in more than one shape.** On Athenites invoice 1000752311, none of page 2's 16 lines were read, so the lines added up to 671.79 against a printed 1,241.45. The scanner had read that page's table as 7 columns (line number and description in one cell) instead of the 8 the profile expected, and put the invoice header and the totals in the same table. *Fix:* a continuation table may have 7 or 8 columns. The number columns on the right are read by position, as before, and everything to their left is taken apart by the profile. A row only counts as an item if it starts with a line number or has a barcode, so the header and totals rows are left out. The invoice now adds up to the cent, and the earlier Athenites invoices read the same as before. *What went right:* the total check (D-010) stopped the wrong Excel from being made. *What went wrong:* it told staff "a page may be missing, scan again", when the page had been scanned but not read. A test now covers this page shape.
 
+**Amendment (2026-11-09): a long till roll scanned in pieces (Cassandra).** Cassandra invoice 2220210014739 was too long for one scan, so staff scanned the till roll in two pieces into one PDF. The second piece has no header row, and it starts with the last two lines of the first piece again (the pieces overlapped). None of its lines were read: the lines added up to 6,303.13 against a printed 6,697.40, and staff were told "scan again" twice, with the same result both times. Fixes:
+- **A piece without a header row is read by position** (`cassandra.continuation_rows`), like Athenites page 2: the eight number columns on the right (FACT, QTY, SUB, PRC, GROSS, DISC, VAT, TOTAL), and everything to their left is the product. On the first scan, the scanner also added an empty column among the numbers, in a different place on each row, so for Cassandra the last eight *filled* cells are named, and empty ones are passed over (`headless_rows(..., skip_empty=True)`; Athenites reads as before).
+- **Overlap is dropped, for till rolls only.** A profile with `OVERLAPPING_PAGES = True` (Cassandra) has the lines at the top of a page that repeat the last lines of the page before (same product, quantity and amount) left out. *Not for every supplier:* only a till roll is scanned in overlapping pieces. On an A4 invoice (Athenites, Coca-Cola) the same line on two pages is two real lines, and dropping one would lose stock without anyone noticing. The total check (D-010) still runs afterwards, so a real line dropped by mistake would still be caught.
+- Both scans now read all 40 lines and add up to 6,697.40, to the cent. Staff guide: a long till receipt is scanned in pieces, top first, into one PDF; a little overlap is fine (Zein: staff shouldn't have to scan it exactly).
+*Second time:* the 2026-10-20 amendment was the same failure (a page scanned but not read, staff told to scan again). The D-032 amendment makes sure the next one fixes itself after an update.
+
 ---
 
 ## D-005: Everything is stored per selling piece; invoice units are converted using supplier rules and known pack sizes
@@ -1012,6 +1018,22 @@ D:\Invoices\                          (Zein makes a desktop shortcut to this fol
 - *Retry the invoice on every question in the same run.* Rejected: the same error each time, and a log full of copies.
 
 **Reasoning.** One bad invoice should cost one invoice, not the whole batch. Zein is in Dubai and staff work in batches about an hour a week, so a stuck queue could mean a week of invoices waiting. The pieces were already there: Zein's list for "needs Zein", the log for details, the automatic return once fixed. This puts errors on the same path.
+
+**Amendment (2026-11-09): "scan again" comes back too; the same result twice goes to Zein; answers keep which product they were about.**
+
+*Context.* Cassandra 2220210014739 (D-004 amendment 2026-11-09): the tool missed page 2's lines, so the lines didn't add up and staff were told "scan again", which assumes a page is missing from the scan. They scanned it again and got the same result. A "scan again" invoice was never looked at again, even after an update fixed the cause: staff would have had to scan it a third time and answer its 10 new-item questions again. The total check can't tell "a page is missing" from "a page is there but wasn't read".
+
+*Decision.*
+- **A "scan again" invoice comes back by itself**, like one on Zein's list: at start, the tool tries it again, and if the lines now add up it goes back to staff with their answers. Only the newest scan of an invoice comes back; older scans stay as they are (and the duplicate check stops one being done twice). The report lists each as `BACK`. No time limit (Zein: staff don't enter invoices by hand, so an old one coming back can't double the stock).
+- **The same result twice goes to Zein, not to a third scan.** If an invoice is scanned again and the lines still don't add up with exactly the same totals, the tool is misreading it: it goes on Zein's list ("Scanned twice with the same result..."), and from there back to staff after the fix.
+- **Each answer keeps which product it was about.** Answers are stored by a line's place on the page ("page 0, row 3"). An update that reads a page's rows differently could put an old answer on another line. Now each answer also keeps the line's fingerprint (its barcode, or its printed name). When an invoice is worked out again, an answer whose line is now a different product is dropped, and staff are asked again. Answers from before this change have no fingerprint and are kept (the Cassandra invoice's 10 answers were checked by hand: all land on the same products).
+
+*Alternatives considered.*
+- *Staff scan it a third time (no code).* Rejected: they answer every question again (another chance to mistype a barcode, as happened on the first scan), it uses Azure pages, and it repeats every time a reading bug sends an invoice to "scan again".
+- *Bring back "scan again" invoices only for 14 days* (against an invoice entered by hand coming back and being uploaded twice). Rejected by Zein: staff don't enter invoices by hand, the same risk applies to every invoice, and a genuinely missing page never adds up, so it can't come back by mistake.
+- *Key answers by barcode instead of by place.* Rejected: staff answer about lines before the product is known (a new item, a misread barcode), and the same product can be on two lines. The fingerprint check keeps keys by place but catches the case where the place now holds another product.
+
+*Reasoning.* When the tool is wrong, staff shouldn't pay for it. The same path already worked for Zein's list (D-032), and re-checking costs nothing: the scans are read from the cache. Turning "an answer silently on the wrong line" into "one more question" is the safe direction.
 
 ## D-033: Every line's cost is checked against what we pay; far off means a question
 

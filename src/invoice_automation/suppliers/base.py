@@ -11,6 +11,7 @@ A supplier module describes its invoice and turns one table row into an InvoiceL
     adjust(invoice, text)  optional: invoice-wide changes, e.g. a discount on the whole invoice
     VAT_PER_LINE           optional: True if the supplier rounds the VAT of each line (Hell), not of each rate
     continuation_rows(result)  optional: rows of a later page whose table has no header row
+    OVERLAPPING_PAGES      optional: True if a long till roll is scanned in pieces that may overlap (Cassandra)
 
 This module does the rest the same way for everyone: find the table, apply staff corrections,
 number the lines, find the header fields and the total.
@@ -75,6 +76,7 @@ def parse(profile, result: dict, source, page_index: int, corrections: dict | No
         pages=[page_index],
         page_angle=page.get("angle", 0.0) or 0.0,
         vat_per_line=getattr(profile, "VAT_PER_LINE", False),
+        overlapping_pages=getattr(profile, "OVERLAPPING_PAGES", False),
     )
     adjust = getattr(profile, "adjust", None)
     if adjust:
@@ -87,6 +89,8 @@ def combine(pages: list[Invoice]) -> Invoice:
     """Several pages of one invoice (D-004): lines in order, header from the first page that has
     it, the total from the last page that prints one."""
     first = pages[0]
+    if first.overlapping_pages:
+        _drop_overlap(pages)
     lines = [line for p in pages for line in p.lines]
     header = None
     for i, line in enumerate(lines, 1):
@@ -104,11 +108,26 @@ def combine(pages: list[Invoice]) -> Invoice:
         computed_total=computed_total(lines, first.vat_per_line),
         source=first.source, pages=[i for p in pages for i in p.pages],
         flags=[f for p in pages for f in p.flags], page_angle=first.page_angle, discount=first.discount,
-        vat_per_line=first.vat_per_line,
+        vat_per_line=first.vat_per_line, overlapping_pages=first.overlapping_pages,
     )
     if not lines:
         invoice.flags.append(Flag(RED, "row", "No item lines could be read.", ZEIN))
     return invoice
+
+
+def _drop_overlap(pages: list[Invoice]) -> None:
+    """A long till roll scanned in pieces (D-004 amendment 2026-11-09): the top of a page may repeat the last
+    lines of the page before. Those repeats are dropped. A line only counts as a repeat if its product
+    and all its numbers are the same; the total check is still the safety net."""
+    def same(a: InvoiceLine, b: InvoiceLine) -> bool:
+        return (a.fingerprint, a.quantity, a.amount_excl_vat) == (b.fingerprint, b.quantity, b.amount_excl_vat)
+
+    before: list[InvoiceLine] = []
+    for page in pages:
+        overlap = next((n for n in range(min(len(before), len(page.lines)), 0, -1)
+                        if all(same(a, b) for a, b in zip(before[-n:], page.lines[:n]))), 0)
+        page.lines = page.lines[overlap:]
+        before = page.lines or before
 
 
 def computed_total(lines: list[InvoiceLine], vat_per_line: bool = False) -> float:

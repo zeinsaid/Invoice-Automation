@@ -68,6 +68,7 @@ class Entry:
     note: str = ""  # why it is on Zein's list / to enter by hand / to rescan
     output: str = ""  # the Excel written for it
     label: str = ""  # "Athienitis 1000748334", once known
+    seen: dict = field(default_factory=dict)  # line key -> fingerprint of the line it was answered about
 
     @property
     def key(self) -> str:
@@ -221,6 +222,8 @@ def evaluate(entry: Entry, ctx: Context) -> Evaluation:
         corrections = {k.split(":")[2]: v for k, v in a.items() if k.startswith(f"fix:{page}:")}
         pages.append(profile.parse(layout, Path(entry.file), page, corrections))
     inv = suppliers.base.combine(pages)
+    if drop_moved_answers(entry, inv):
+        return evaluate(entry, ctx)  # a typed-in correction belonged to another line: read the pages again
     for line in inv.lines:
         if line.amount_incl_vat is not None:  # the paper prints no VAT (D-030)
             _set_vat(line, _likely_vat(line, inv.supplier, ctx))
@@ -283,6 +286,23 @@ def skip_id(ev: Evaluation, line: InvoiceLine) -> str:
     """Where "Not for the shop" is stored (D-025). By product, like item answers: a second line of the
     same product is left out with it."""
     return f"skip:{ev.answer_keys.get(line.key, line.key)}"
+
+
+def drop_moved_answers(entry: Entry, inv: Invoice) -> bool:
+    """D-032 amendment: answers are stored by a line's place on the page. If an update reads the page's
+    rows differently, the line at that place may be another product: its answers are dropped, and staff
+    are asked again rather than an answer landing on the wrong line. Answers given before fingerprints
+    were kept (November 2026) can't be checked and stay. Returns True if a typed-in correction was dropped."""
+    lines = {line.key: line for line in inv.lines}
+    moved = {key for key, fingerprint in entry.seen.items()
+             if key not in lines or lines[key].fingerprint != fingerprint}
+    fix = False
+    for answer in [a for a in entry.answers if a.partition(":")[2] in moved]:
+        fix |= answer.startswith("fix:")
+        del entry.answers[answer]
+    for key in moved:
+        del entry.seen[key]
+    return fix
 
 
 def _zein(ev: Evaluation, note: str) -> Evaluation:

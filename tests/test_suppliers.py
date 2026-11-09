@@ -5,8 +5,8 @@ import re
 import pytest
 
 from invoice_automation.layout import without_handwriting
-from invoice_automation.suppliers import (agrotis_pos, asian, athenites, cocacola, hell, identify, pambos,
-                                         skipped_reason)
+from invoice_automation.suppliers import (agrotis_pos, asian, athenites, base, cassandra, cocacola, hell, identify,
+                                         pambos, skipped_reason)
 
 
 def _page(rows, content="", styles=()):
@@ -203,3 +203,38 @@ def test_hell_rounds_vat_per_line():
     assert inv.computed_total == 126.10  # 10 x (10.60 + 2.01)
     assert hell.base.computed_total(inv.lines) == 126.14  # the usual way
     assert hell.base.combine([inv]).computed_total == 126.10
+
+
+# --- Cassandra: a long till roll scanned in two pieces (D-004 amendment 2026-11-09) ----------------------------
+
+CASSANDRA_HEADER = ["PRODUCT", "FACT", "QTY", "SUB", "PRC", "GROSS", "DISC %", "VAT %", "TOTAL"]
+RED = ["AB01 - TEST RED KS/ 5290000000017", "10", "2", "0", "30.00", "60.00", "0%", "19%", "71.40"]
+GOLD = ["AB02 - TEST GOLD KS/ 5290000000024", "10", "1", "0", "30.00", "30.00", "0%", "19%", "35.70"]
+
+
+def _cassandra_pages(second_piece):
+    first = _page([CASSANDRA_HEADER, RED, GOLD], "CASSANDRA TRADING LTD\n2220210000001 (Αρ. Εκτύπωσης: 1)")
+    second = _page(second_piece, "ΟΛΙΚΟ ΕΥΡΩ / TOTAL EURO\n130.90")
+    return [cassandra.parse(first, "x.pdf", 0), cassandra.parse(second, "x.pdf", 1)]
+
+
+def test_cassandra_second_piece_without_header_and_with_overlap():
+    # The second piece starts with the end of a product cut off at the top, then repeats the last line of the
+    # first piece. The scanner added an empty column among the numbers, in a different place on each row.
+    pages = _cassandra_pages([
+        ["5290000000048", "", "", "", "", "", "", "", "", ""],
+        ["AB02 - TEST GOLD KS/ 5290000000024", "10", "1", "0", "", "30.00", "30.00", "0%", "19%", "35.70"],
+        ["AB03 - TEST BLUE/ 5290000000031", "6", "2", "", "0", "10.00", "20.00", "0%", "19%", "23.80"]])
+    inv = base.combine(pages)
+    assert [(l.description, l.quantity, l.amount_excl_vat, l.flags) for l in inv.lines] == [
+        ("TEST RED", 20, 60.0, []), ("TEST GOLD", 10, 30.0, []), ("TEST BLUE", 12, 20.0, [])]
+    assert (inv.computed_total, inv.printed_total) == (130.90, 130.90)
+
+
+def test_overlap_is_only_dropped_for_till_rolls():
+    pages = _cassandra_pages([GOLD])
+    for page in pages:
+        page.overlapping_pages = False  # an A4 invoice: the same line on two pages is two lines
+    assert len(base.combine(pages).lines) == 3
+    pages = _cassandra_pages([GOLD[:4] + ["30.00", "60.00"] + GOLD[6:8] + ["71.40"]])  # same item, other numbers
+    assert len(base.combine(pages).lines) == 3

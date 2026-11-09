@@ -122,3 +122,60 @@ def test_a_new_item_keeps_its_code_when_the_invoice_is_finished_again(shop):
     assert first.code == again.code == "8"
     with (shop / "new_items.csv").open(encoding="utf-8", newline="") as f:
         assert len(list(csv.DictReader(f))) == 1
+
+
+# --- D-032 amendment (November 2026) ----------------------------------------------------------------------
+
+RESCAN_NOTE = ("The lines add up to 90.00 but the paper says 100.00. A page may be missing: scan ALL pages of "
+               "this invoice into one PDF and run again.")
+
+
+def test_a_scan_again_invoice_comes_back_once_an_update_fixes_it(shop, monkeypatch):
+    older = Entry("a.pdf", [0, 1], "", status="rescan", note=RESCAN_NOTE, label="Test 1", answers={"item:0:1": "yes"})
+    newer = Entry("b.pdf", [0, 1], "", status="rescan", note=RESCAN_NOTE, label="Test 1", answers={"item:0:2": "yes"})
+    s = _session([older, newer], lambda entry, ctx: Evaluation(entry, questions=[Question("x", "x", "x")]),
+                 monkeypatch)
+    assert (newer.status, newer.answers) == ("pending", {"item:0:2": "yes"})  # the answers stay
+    assert older.status == "rescan"  # only the newest scan of an invoice comes back
+    assert s.returned == [newer]
+
+
+def test_a_scan_again_invoice_that_still_doesnt_add_up_stays(shop, monkeypatch):
+    entry = Entry("a.pdf", [0], "", status="rescan", note=RESCAN_NOTE, label="Test 1")
+    _session([entry], lambda e, ctx: Evaluation(e, outcome="rescan", note=RESCAN_NOTE), monkeypatch)
+    assert entry.status == "rescan"
+
+
+def test_the_same_result_from_a_second_scan_goes_to_zein(shop, monkeypatch):
+    first = Entry("a.pdf", [0], "", status="rescan", note=RESCAN_NOTE, label="Test 1")
+    second = Entry("b.pdf", [0], "", label="Test 1")
+    other = Entry("c.pdf", [0], "", label="Test 2")
+    s = _session([first, second, other], lambda e, ctx: Evaluation(e, outcome="rescan", note=RESCAN_NOTE),
+                 monkeypatch)
+    assert s.next_question() is None
+    assert second.status == "needs_zein"
+    assert second.note == sm.SAME_TWICE + "The lines add up to 90.00 but the paper says 100.00."
+    assert other.status == "rescan"  # another invoice: its first scan, so staff scan it again
+
+
+def test_each_answer_keeps_which_product_it_was_about(shop, monkeypatch):
+    entry = Entry("a.pdf", [0], "")
+    s = _session([entry], lambda e, ctx: Evaluation(e), monkeypatch)
+    line = InvoiceLine("1", "Test  item", "", 1, 1.0, 19, page=0, row_index=3)
+    s.answer(entry, Question("item:0:3", "item", "x", line=line), "yes")
+    assert entry.seen == {"0:3": "TEST ITEM"}
+
+
+def test_an_answer_whose_line_is_now_another_product_is_asked_again():
+    entry = Entry("a.pdf", [0], "", answers={"item:0:3": "yes", "pack:0:3": 6, "fix:0:4": {"quantity": "2"},
+                                             "item:0:5": "yes", "item:0:6": "yes", "total": 9.0},
+                  seen={"0:3": "5290000000017", "0:4": "TEST GOLD", "0:5": "TEST BLUE"})
+    lines = [InvoiceLine("1", "Other", "5290000000024", 1, 1.0, 19, page=0, row_index=3),  # another product now
+             InvoiceLine("2", "test gold", "", 1, 1.0, 19, page=0, row_index=4),  # the same, in other letters
+             InvoiceLine("3", "Test blue", "", 1, 1.0, 19, page=0, row_index=6)]  # moved one row down
+    inv = Invoice("S", "S", "1", None, lines, None, 3.0, "a.pdf", [0])
+    assert pipeline.drop_moved_answers(entry, inv) is False
+    assert entry.answers == {"fix:0:4": {"quantity": "2"}, "item:0:6": "yes", "total": 9.0}  # 0:6: no fingerprint
+    assert entry.seen == {"0:4": "TEST GOLD"}
+    entry.seen["0:4"] = "TEST RED"
+    assert pipeline.drop_moved_answers(entry, inv) is True  # a typed-in correction: the pages are read again

@@ -15,7 +15,8 @@ from .files import save_atomic
 from .model import InvoiceLine
 from .suppliers import PROFILES, example
 from .pipeline import (DONE, MANUAL, NEW, PENDING, RESCAN, SKIPPED, STATE_DIR, ZEIN_LIST, Context, Entry, Evaluation,
-                       Question, Result, enqueue, evaluate, finalize, load_queue, save_queue, skip_id, split)
+                       Question, Result, _zein, enqueue, evaluate, finalize, load_queue, save_queue, skip_id,
+                       split)
 
 REPORTS_DIR = Path("data/reports")
 LAST_EXPORT = STATE_DIR / "last_export.txt"  # the export the last report described (D-023)
@@ -27,6 +28,9 @@ ERROR_LOG = Path("logs/error.log")
 # goes back to staff by itself once an update fixes the cause (_return_fixed).
 CRASHED = "The tool hit an error on this invoice (details in logs\\error.log)."
 UNREADABLE_SCAN = "This scan could not be read (details in logs\\error.log). It is tried again next time."
+# D-032 amendment: the same invoice scanned again and the lines still don't add up, the same way. Two scans
+# that agree mean the tool is misreading it, not that a page is missing: Zein, not a third scan.
+SAME_TWICE = "Scanned twice with the same result, so the tool is misreading it, not the scan: "
 
 
 def log_error(error: BaseException, where: str = "") -> None:
@@ -54,23 +58,30 @@ class Session:
     events: list[Event] = field(default_factory=list)
     started: dict[str, float] = field(default_factory=dict)  # invoice -> when its first question was shown
     failed: set[str] = field(default_factory=set)  # invoices that hit an error in this run: not tried again in it
+    returned: list[Entry] = field(default_factory=list)  # back to staff at start, after an update (_return_fixed)
 
     def __post_init__(self) -> None:
         self._return_fixed()
 
     def _return_fixed(self) -> None:
         """An invoice an automatic check sent to Zein goes back to staff once an update has fixed the
-        cause (Pambos' unreadable VAT, October 2026). One staff sent with "I'm not sure" stays with Zein."""
+        cause (Pambos' unreadable VAT, October 2026). One staff sent with "I'm not sure" stays with Zein.
+        So does a "scan again" invoice (D-032 amendment): its lines may not have added up because the
+        tool missed some, not because a page was missing (Cassandra 2220210014739, November 2026). Only
+        the newest scan of an invoice comes back; its answers are kept."""
+        newest = {e.label: e for e in self.entries if e.label}
         changed = False
         for entry in self.entries:
-            if entry.status != ZEIN_LIST or entry.note.startswith(NOT_SURE):
+            waiting = entry.status == ZEIN_LIST and not entry.note.startswith(NOT_SURE)
+            if not (waiting or (entry.status == RESCAN and newest.get(entry.label) is entry)):
                 continue
             try:
                 outcome = evaluate(entry, self.ctx).outcome
-            except Exception:  # noqa: BLE001 - e.g. the scan was moved away: it simply stays on Zein's list
+            except Exception:  # noqa: BLE001 - e.g. the scan was moved away: it simply stays where it is
                 continue
-            if outcome != "zein":
+            if outcome not in ("zein", RESCAN):
                 entry.status, entry.note, changed = PENDING, "", True
+                self.returned.append(entry)
         if changed:
             save_queue(self.entries)
 
@@ -89,6 +100,8 @@ class Session:
                 continue
             try:
                 ev = evaluate(entry, self.ctx)
+                if ev.outcome == RESCAN and self._scanned_before(entry, ev.note):
+                    _zein(ev, SAME_TWICE + ev.note.split(". ")[0] + ".")
                 if ev.outcome == "ready":
                     result = finalize(ev, self.ctx)
             except PermissionError:
@@ -107,6 +120,11 @@ class Session:
                 self.started.setdefault(entry.key, time.monotonic())
                 return entry, ev, ev.questions[0]
         return None
+
+    def _scanned_before(self, entry: Entry, note: str) -> bool:
+        """Another scan of this invoice was already sent back with exactly the same totals."""
+        return any(e is not entry and e.label == entry.label and e.status == RESCAN and e.note == note
+                   for e in self.entries)
 
     def _split_new(self) -> None:
         """New scans become one entry per invoice. A scan that can't be read (no internet, a broken PDF)
@@ -153,6 +171,8 @@ class Session:
             entry.answers[f"pack:{row}" if isinstance(value, int) else f"item:{row}"] = value
         else:
             entry.answers[question.id] = value
+        if question.line is not None:  # which product the answer is about (D-032 amendment)
+            entry.seen[question.id.partition(":")[2]] = question.line.fingerprint
         if entry.status == ZEIN_LIST:
             entry.status = PENDING  # Zein answered: back to the normal flow
         save_queue(self.entries)
@@ -169,7 +189,7 @@ class Session:
 
     def not_for_shop(self, entry: Entry, ev: Evaluation, line: InvoiceLine) -> None:
         """D-025: bought on the shop's invoice for home or the restaurant: left out of the Excel."""
-        self.answer(entry, Question(skip_id(ev, line), "skip", "Not for the shop"), True)
+        self.answer(entry, Question(skip_id(ev, line), "skip", "Not for the shop", line=line), True)
 
     def drop(self, entry: Entry) -> None:
         """Zein only: take an invoice out of the tool; it is entered by hand."""
@@ -177,7 +197,7 @@ class Session:
 
     def restart(self, entry: Entry) -> None:
         """Zein only: forget all answers for an invoice and ask again."""
-        entry.answers, entry.status, entry.note = {}, PENDING, ""
+        entry.answers, entry.seen, entry.status, entry.note = {}, {}, PENDING, ""
         save_queue(self.entries)
 
     def _event(self, entry: Entry, status: str, note: str = "", result: Result | None = None) -> None:
@@ -216,11 +236,12 @@ class Session:
     def write_report(self) -> Path | None:
         """Zein's report: everything that happened, price changes and what staff confirmed (D-011, D-022)."""
         notes = self._export_notes()
-        if not self.events and not notes:
+        if not self.events and not notes and not self.returned:
             return None
         g = self.summary()
         out = [f"Invoice run {datetime.now():%Y-%m-%d %H:%M}" + (" (Zein)" if self.zein else ""), ""]
         out += notes
+        out += [f"BACK    {_where(e)}: back to staff after an update fixed it." for e in self.returned]
         for e in g[DONE]:
             r = e.result
             timing = f", {len(e.entry.answers)} questions in {e.seconds / 60:.1f} min" if e.seconds else ""
