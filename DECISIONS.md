@@ -870,6 +870,12 @@ D:\Invoices\                          (Zein makes a desktop shortcut to this fol
 - *Asking again whenever a learned answer is old.* Rejected: it brings back the questions learning is meant to remove.
 - *Only the monthly check, no Admin option.* Rejected: a wrong answer Zein hears about from staff should be fixable the same day.
 
+**Amendment (2026-11-09, first monthly check): sizes, and less noise.** The first run listed 125 rows, and the two real mistakes weren't among them: Red Bull 4×250ML learned as the 355ML can, and a 70CL Malibu as the 100CL item. Both were found by reading the reports. The word comparison leaves numbers out on purpose ('5X42G' pack details would flood it), so a different *size* of the same product never showed. Changes to `check_learned.py`:
+- **Size:** if the supplier's wording and the item's name both print a size (ML, CL, L, G, KG) and they differ, the row is listed ("size differs: 250 vs 355"). A pack learned with its pieces per unit is allowed for: 'KINDER TRONKY T5 90GR' at 5 per unit is the 18gr single.
+- **Less noise:** a row matched on PowerSoft's own barcode no longer lists spelling differences ('PAPRICA' vs 'PAPRIKA'): the barcode settles which item it is. A clearly better-fitting name, a far-off cost or a different size is still listed.
+- Result: 77 rows instead of 125, with all four size mismatches at the top of the list (Red Bull and Malibu, plus Nutella 750 vs 700 and Sour Patch 120 vs 130 for a shelf check).
+*Why not a stricter cost check instead (D-033 asks at 2×):* both mistakes were about 1.3× off, the same as a normal price rise. Asking at 1.3× would question every price change; a monthly size check costs staff nothing.
+
 **Reasoning.** Learning is what makes the tool quicker every week, so a wrong answer has to be cheap to find and remove, not prevented by asking more. Most invoices will now be done by one experienced member of staff, which already lowers the risk. The check script finds the mistakes no automatic check sees (same price, similar name), and deleting the row returns the product to "ask".
 
 ---
