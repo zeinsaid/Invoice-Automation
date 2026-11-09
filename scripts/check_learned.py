@@ -7,6 +7,7 @@ of the shop PC's 'Admin only\\data' folder, and this lists the learned rows wort
   - the item no longer exists in the PowerSoft export
   - another item's name fits the supplier's wording clearly better than the chosen item's
   - the supplier's wording and the item's name have little in common
+  - both print a size and the sizes differ (Red Bull 4x250ML learned as the 355ML can, November 2026)
   - the cost per piece is far from PowerSoft's cost (wrong item, or wrong pieces per unit)
 
 A row on this list isn't necessarily wrong (supplier names are abbreviated: 'N/VALLEY MUES/BAR'); Zein
@@ -17,6 +18,7 @@ Usage:  uv run python scripts/check_learned.py "<copy of Admin only\\data>" [--a
 """
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -29,6 +31,8 @@ from invoice_automation.supplier_items import LEGACY_BARCODE, SupplierItems
 LOW_SIMILARITY = 55  # 0-100: below this, the wording and the item's name barely overlap
 BETTER_BY = 15  # another item's name scores this much higher than the chosen one
 COST_RATIO = 1.5  # cost per piece more than 1.5x PowerSoft's, or less than 1/1.5
+SIZE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(ML|CL|LTR|LT|L|KG|GR|G)\b")
+TO_ML_OR_G = {"ML": 1, "CL": 10, "L": 1000, "LT": 1000, "LTR": 1000, "G": 1, "GR": 1, "KG": 1000}
 
 
 def main() -> None:
@@ -64,8 +68,16 @@ def main() -> None:
         elif score < LOW_SIMILARITY:
             reasons.append(f"names barely match ({score:.0f}/100)")
         ours, theirs = _words(catalogue.name_keys[item.code]), _words(wording)
-        if theirs - ours and ours - theirs:  # BER vs HON: a word on each side the other lacks
+        # A match on PowerSoft's own barcode settles which item it is: different spelling ('PAPRICA') isn't
+        # worth a look then (2026-11-09: 52 of 125 rows were only that). A better-fitting name still is.
+        by_barcode = r.source.startswith("barcode")
+        if theirs - ours and ours - theirs and not by_barcode:  # BER vs HON: a word on each side the other lacks
             reasons.append(f"words differ: {' '.join(sorted(theirs - ours))} vs {' '.join(sorted(ours - theirs))}")
+        theirs_size, ours_size = _sizes(r.supplier_description), _sizes(item.description)
+        if r.pack_factor and r.pack_factor > 1:  # 'TRONKY T5 90GR' is 5 x the 18gr single
+            theirs_size |= {round(s / r.pack_factor, 1) for s in theirs_size}
+        if theirs_size and ours_size and not theirs_size & ours_size:
+            reasons.append(f"size differs: {_show(theirs_size)} vs {_show(ours_size)}")
         if r.last_cost and item.cost and not item.local:
             ratio = r.last_cost / item.cost
             if ratio > COST_RATIO or ratio < 1 / COST_RATIO:
@@ -81,6 +93,17 @@ def main() -> None:
 
 def _similarity(a: str, b: str) -> float:
     return max(fuzz.ratio(a, b), fuzz.token_set_ratio(a, b))
+
+
+def _sizes(description: str) -> set[float]:
+    """The sizes a name prints, in ml or g: '4×250ML' is {250}, 'MALIBU 70CL' is {700}, '1.5LT' is {1500}.
+    The word check leaves numbers out (pack and size details), so without this a 250ML can learned as the
+    355ML one never shows: both are 'RED BULL ENERGY'."""
+    return {float(n.replace(",", ".")) * TO_ML_OR_G[unit] for n, unit in SIZE.findall(description.upper())}
+
+
+def _show(sizes: set[float]) -> str:
+    return "/".join(f"{s:g}" for s in sorted(sizes))
 
 
 def _words(key: str) -> set[str]:
