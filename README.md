@@ -36,7 +36,9 @@ output/Ready to upload/  → staff upload it to PowerSoft
 
 **It learns.** Every answer is saved per supplier: the barcode a wholesaler uses for a case, its pack size, their wording for a product. The next invoice from that supplier asks less: once staff confirm a supplier's wording for a product, it isn't asked again.
 
-**New products.** The new-item form takes the cost from the invoice, never from typing, and refuses a selling price below cost. When one unit holds several pieces, it first offers the single item the shop already sells, so a 3-pack of something stocked doesn't become a duplicate item.
+**New products.** The new-item form takes the cost from the invoice, never from typing, and refuses a selling price below cost. When one unit holds several pieces, it first offers the single item the shop already sells, so a 3-pack of something stocked doesn't become a duplicate item. A product the shop had stopped selling, whose barcode comes back on an invoice, is offered back (to be switched on again in PowerSoft) instead of being created a second time.
+
+**A monthly check.** Once a month a script compares what the tool has learned, and what it sent for upload, with a fresh export from PowerSoft. It lists answers worth a second look (a 250 ml can learned as the 355 ml one, a cost far from what the shop pays) and invoices marked as uploaded whose costs never reached PowerSoft, which means a purchase order was missed.
 
 ### Why Azure Document Intelligence, not a vision LLM
 
@@ -48,6 +50,7 @@ The tool runs on the shop's Windows PC, which resets its C: drive at every resta
 
 - **Code and data are separate folders.** An update replaces only the code: one click downloads the newest version from this repository, checks that it starts against the real data, and goes back to the previous version on its own if it doesn't. What the tool has learned is never touched.
 - **Nothing learned can be lost to a crash.** Every file is saved to a temporary copy and swapped in with one rename, and the first run each day makes a backup (30 days kept).
+- **When the tool is wrong, staff don't pay for it.** An invoice the tool fails on, or one it wrongly asked to scan again, waits for the owner while the others carry on, and comes back by itself after the update that fixes it, with every answer kept. Each answer remembers which product it was about, so an update that reads a page differently can't attach it to another line.
 - **Bad input is refused, not used.** A cut-off item export, or one missing a column, is skipped for the previous one. If the learned table goes missing, the tool stops and asks for the owner rather than quietly starting from scratch.
 - **Staff-friendly.** Big buttons, short words, the line from the scan shown above every question, "< Previous question" for mis-clicks, "I'm not sure" to pass an invoice to the owner, and "Not for the shop" for something bought on the shop's invoice for elsewhere. Staff see one folder: where scans go, what to upload, the button and the guide; the rest is tucked away. Errors read "contact Zein"; details go to a log.
 
