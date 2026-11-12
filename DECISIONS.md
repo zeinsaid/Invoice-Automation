@@ -201,6 +201,8 @@ A line that matches a linked pack goes in as the single item, N pieces per invoi
 
 ---
 
+**Amendment (2026-11-12): Fereos' unit B is a case.** The Fereos invoice has two units per line: unit A, the selling piece ("Packet 20", "Box 120"), and unit B. Unit B had been empty on every sample, so the profile sent any line that used it to Zein. On S15310019903 (30 October) Rizla Single Silver 50s came as 1 "Outer 5000" at 24.00 in the unit B columns. The invoice waited for Zein, and Zein couldn't clear it from the window either: correcting the numbers didn't take the unit-B note away. *Decision:* a line with only unit B filled is read like a case from any supplier that sells in cases: quantity and price from the B columns, and staff are asked "How many pieces in 1 unit?", checked by price against what we pay (0.46 a booklet, so a box of about 50) and learned (D-020). The pieces aren't taken from "5000": that counts papers, not booklets. A line with both units filled has still never happened and still goes to Zein. *Why not ask Zein every time:* the question is about what's in the box on the shelf, which staff can see and Zein can't.
+
 ## D-006: Matching order: learned mapping → barcode → fuzzy name → ask staff (LLM step dropped)
 
 **Status:** Accepted · 2026-10-14
@@ -701,6 +703,8 @@ The 11 VAT corrections were made by hand and verified in the second 2026-10-14 e
 
 ---
 
+**Amendment (2026-11-12): a header the scanner merged or missed no longer crashes a profile.** On Pambos IN2600007050 (11 November) both discount columns were empty, and the scanner read their headers as one column, "Disc % Discount". The Pambos profile asked for the "Discount" column, which wasn't there, and the tool crashed on that scan in every run (D-032 kept it on Zein's list and let the other invoices through). *Fix, for every supplier:* the table reader now gives every row every column the profile names; a column whose header wasn't found is empty. An empty cell is something every profile already handles, because cells are blank on the paper all the time, and the line and total checks still apply, so the worst case is a "type the numbers" question, never a crash. *A second effect, Pambos only:* with the two columns merged, the line table had 7 columns, the same as the summary box under it (Subtotal, VAT, Total), which was then read as more lines (a table with the same number of columns and no header continues the line table, for Cosmos). Every Pambos item row has Pambos' one-word code (GKSPOD9, CRYSTALVAPE14); a row without one is not an item row. Before, the line table had 8 columns and the box 7, so the two were never confused: that was luck, not a rule. *Checked:* all 38 scans from the shop replayed on its own data before and after; only this invoice and the Fereos one (D-005 amendment) changed. *Alternatives considered:* fix only Pambos' discount column (rejected: any supplier's empty columns can be merged the same way); stop reading a continuation table on the same page (rejected: Cosmos prints two pages on one sheet, which is why continuation tables exist).
+
 ## D-022: Review window: staff answer questions from the paper and the shelf; the Excel is only written once an invoice is cleared
 
 **Status:** Accepted · 2026-10-15 (refines D-002 and D-011: flags become questions)
@@ -1116,3 +1120,26 @@ Zein: "No matter how wrong our prices are in the system, they're not going to be
 **Amendment (2026-11-05): the new-item form starts at the printed case size.** The form's "How many do you sell from 1 unit on the invoice?" always started at 1, and its name box at the invoice's wording ("HELL ZERO 250ML X 24"). Hell's first invoice has 19 new items. Pressing on with the 1 would have booked a case of 24 as one can at 10.60, and no check can catch it: a new item has no cost to compare with (D-033 skips new items). *Decision:* when the invoice prints a case size (in the description for Hell and Coca-Cola, in a pack-size column for Andrikian and Agrotis), the form starts at it. If the size is written in the description, it is also taken out of the suggested name ("HELL ZERO 250ML X 24" -> "HELL ZERO 250ML"; a name ending in "xN" means a pack in PowerSoft, D-005). An invoice that already counts single pieces still shows 1, greyed out (D-005 amendment). Staff can change both boxes, and the cost per piece below the form shows at once whether the number is right (€0.44 a can, not €10.60). *Alternative considered:* keep 1 and rely on the cost line. Rejected: the cost line only helps someone who reads it, and the paper already says the number.
 
 *The "Do we already sell ONE piece of it?" list.* Because the form can now start above 1, this list shows as soon as the form opens. It shows the closest names, and names alone can't tell one flavour from another: for HELL ZERO 250ML it offered SHARK ZERO 250ML (79/100) and HELL ENERGY S/FOCUS 250ML. One wrong click books the stock to another product. The list now leaves out what can't be the same product: **another size** (a 500 ml can for a 250 ml line), **another brand we stock** (Shark for a Hell line), and **weak matches below 75** (other flavours of the same can scored 74 or less on the shop's names; the same product sold as a pack scored 79 or more: Kinder Bueno T3 -> the single bar 88, AQUA 500ML -> AQUA WATER 500ML 79). On the Hell invoice, the list now appears once, on HELL APPLE 500ML, offering HELL GREEN APPLE 500ML (85). That is exactly the question to ask, because its barcode differs. *Alternatives considered:* hide the list when the form starts above 1 (rejected: it is there for exactly these lines, a case or pack of something we may sell as one piece); only the score limit (rejected: Xixo Peach 500 against the 250 ml scored 87).
+
+
+## D-035: Jawda LTD (Zeina tissues): a new supplier, read by name; the total is the final total
+
+**Status:** Accepted · 2026-11-12
+
+**Context.** Jawda LTD is a new supplier (first invoice # 105, 7 November 2026, five Zeina lines); PowerSoft supplier 10000027. The invoice is a short typed table: Περιγραφή (description), Ποσότητα (quantity), Τιμή (price). It has no barcodes, no item codes and no line totals. The pieces per unit are in the description ("Zeina Peach 500ply 18packs/bag", "Zeina pocket 10packs/multipack 12mltp/box"). VAT is printed once for the invoice ("ΦΠΑ (19%)"). Under the lines, the supplier's own subtotal is wrong: "Σύνολο 67.60" for lines adding up to 67.20; the VAT (12.77) and the final total ("Τελική τιμή 79.97") are worked out from 67.20.
+
+**Decision.**
+- New profile `suppliers/jawda.py`, recognised by "JAWDA".
+- **Matched by name.** With nothing else on the paper, the first invoice makes every line a new item: staff scan the barcode on one piece, as for any product not found. After that the supplier's wording is learned (D-018).
+- **Pieces come from the description** ("18packs/bag" is 18, "12mltp/box" is 12: the last "N.../bag|box" is per unit; "10packs/multipack" is inside each multipack), so the new-item form starts at that number (D-034 amendment). Staff change it if the shop sells something else (single pocket packs: 120). From then on the price checks the learned size.
+- **The price is per unit before VAT**, so a line is quantity x price. Every line so far is quantity 1, so the column could also be the line total; the total check catches that on the first line with more.
+- **Every line gets the printed VAT rate** (19 if none is printed).
+- **The total checked is "Τελική τιμή"**, not "Σύνολο".
+
+**Result on the first invoice.** All 5 lines read, number 105, date 7 November, total 79.97 to the cent; five "not found" questions, one per product.
+
+**Alternatives considered.**
+- *Check the lines against "Σύνολο".* Rejected: it is the one number on the paper that is wrong, and every other profile checks the total with VAT, the one staff are asked to type.
+- *Ask Zein how the shop sells Zeina before writing the profile.* Not needed: the new-item form asks exactly that, starts at the paper's number, and shows the cost per piece underneath; staff have the product in hand.
+
+**Reasoning.** Same pattern as every new layout (D-021, D-029, D-034): a short profile says what each column means, and the shared matching, questions and checks do the rest. What the paper doesn't say (barcodes, what the shop sells as one piece) is asked once of the person holding the product, then learned.

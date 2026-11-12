@@ -5,8 +5,9 @@ import re
 import pytest
 
 from invoice_automation.layout import without_handwriting
-from invoice_automation.suppliers import (agrotis_pos, asian, athenites, base, cassandra, cocacola, hell, identify,
-                                         pambos, skipped_reason)
+from invoice_automation.model import ZEIN
+from invoice_automation.suppliers import (agrotis_pos, asian, athenites, base, cassandra, cocacola, fereos, hell,
+                                         identify, jawda, pambos, skipped_reason)
 
 
 def _page(rows, content="", styles=()):
@@ -72,6 +73,51 @@ def test_pambos_description_read_into_the_row_above():
     assert (banana.barcode, banana.description) == ("6979193576897", "GB POD BANANA ICE 9 *10pcs")
     assert (watermelon.barcode, watermelon.description) == ("6979193577153", "GB POD STRAWBERRY WATERMELON 11 *10pcs")
     assert watermelon.pieces_known  # '*10pcs' is the box: the quantity already counts pods
+
+
+def test_pambos_merged_discount_header_and_summary_box():
+    # IN2600007050: both discount columns empty, read as one 'Disc % Discount' column (it crashed on the missing
+    # 'Discount'). The line table then had 7 columns, like the summary box below it, which was read as more rows.
+    lines = _page([["Item", "Description", "Quantity", "Price", "Disc % Discount", "VAT%", "Total"],
+                   ["GKBDEVICE4", "6979193571229 SPARK DEVICE LUNAR SILVER *10pcs", "10", "3.00", "", "19", "30.00"]])
+    summary = _page([["Customer Balances", "", "VAT Analysis", "", "", "Invoice Summary", ""],
+                     ["Previous Balance 0", "New Balance 0", "Value of Goods", "VAT %", "VAT Amount", "Subtotal", "30.00"],
+                     ["", "", "30.00", "19% (19)", "5.70", "Discount Value", ""],
+                     ["", "", "", "", "", "Total:", "35.70"]])
+    lines["tables"] += summary["tables"]
+    inv = pambos.parse(lines, "x.pdf", 0)
+    assert [(l.supplier_code, l.quantity, l.amount_excl_vat, l.vat_rate, l.flags) for l in inv.lines] == [
+        ("GKBDEVICE4", 10, 30.0, 19, [])]
+    assert inv.computed_total == 35.70
+
+
+# --- Fereos ----------------------------------------------------------------------------------------
+
+FEREOS_HEADER = ["A/A", "ΠΡΟΙΟΝ", "M.M A", "ΠΟΣ. A", "M.M B", "ΠΟΣ. B", "TIMH A (€)", "TIMH B (€)", "EKNIT. (€)",
+                 "ΣΥΝΟΛΟ (€)", "Φ.Π.Α. (%)"]
+
+
+def test_fereos_packets_count_pieces():
+    page = _page([FEREOS_HEADER, ["1", "1005017 - Davidoff Gold (5.00 E2C) CY / 4030600298763", "Packet 20", "10", "", "",
+                                  "3.927", "", "0.00", "39.27", "19"]])
+    line = fereos.parse(page, "x.pdf", 0).lines[0]
+    assert (line.description, line.quantity, line.amount_excl_vat, line.pieces_known, line.flags) == (
+        "Davidoff Gold", 10, 39.27, True, [])
+
+
+def test_fereos_outer_in_unit_b_is_a_case():
+    # S15310019903: 1 'Outer 5000' of Rizla booklets at 24.00 in the B columns. Staff are asked how many pieces.
+    page = _page([FEREOS_HEADER, ["6", "1005020 - Rizla Single Silver 50s (GPSR) / 54031289", "", "", "Outer 5000", "1",
+                                  "", "24.000", "0.00", "24.00", "19"]])
+    line = fereos.parse(page, "x.pdf", 0).lines[0]
+    assert (line.barcode, line.quantity, line.list_price_excl_vat, line.amount_excl_vat) == ("54031289", 1, 24.0, 24.0)
+    assert (line.pieces_known, line.flags) == (False, [])
+
+
+def test_fereos_both_units_filled_goes_to_zein():
+    page = _page([FEREOS_HEADER, ["6", "1005020 - Rizla Single Silver 50s (GPSR) / 54031289", "Box 50", "10",
+                                  "Outer 5000", "1", "0.46", "24.000", "0.00", "28.60", "19"]])
+    assert ZEIN in [f.kind for f in fereos.parse(page, "x.pdf", 0).lines[0].flags]
 
 
 # --- Agrotis shop counter --------------------------------------------------------------------------
@@ -203,6 +249,23 @@ def test_hell_rounds_vat_per_line():
     assert inv.computed_total == 126.10  # 10 x (10.60 + 2.01)
     assert hell.base.computed_total(inv.lines) == 126.14  # the usual way
     assert hell.base.combine([inv]).computed_total == 126.10
+
+
+# --- Jawda (D-035) ----------------------------------------------------------------------------------
+
+def test_jawda_invoice():
+    # Made-up lines shaped like # 105: no barcodes, pieces in the description, a wrong 'Σύνολο' (the supplier's
+    # own sum) under the lines, and the right total in 'Τελική τιμή'.
+    text = "JAWDA LTD\nΑριθμός τιμολογίου # 7 ΗΜΕΡΟΜΗΝΙΑ: 3/12/2026\nΦΠΑ (19%)\n9.12\nΤελική τιμή\n€ 57.12"
+    page = _page([["Περιγραφή", "Ποσότητα", "Τιμή (EURO)"],
+                  ["Test Tissues Rose 500ply 18packs/bag", "2", "14.40"],
+                  ["Test pocket 10packs/multipack 12mltp/box", "2", "9.60"],
+                  ["Σύνολο", "", "50.00"], ["ΦΠΑ (19%)", "9.12", ""], ["Τελική τιμή", "€ 57.12", ""]], text)
+    assert identify(text) is jawda
+    inv = jawda.parse(page, "x.pdf", 0)
+    assert [(l.quantity, l.amount_excl_vat, l.vat_rate, l.printed_factor, l.pieces_known) for l in inv.lines] == [
+        (2, 28.80, 19, 18, False), (2, 19.20, 19, 12, False)]
+    assert (inv.number, str(inv.date), inv.printed_total, inv.computed_total) == ("7", "2026-12-03", 57.12, 57.12)
 
 
 # --- Cassandra: a long till roll scanned in two pieces (D-004 amendment 2026-11-09) ----------------------------

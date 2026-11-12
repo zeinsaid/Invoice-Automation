@@ -3,7 +3,10 @@
 Columns: A/A | ΠΡΟΙΟΝ | Μ.Μ A | ΠΟΣ. A | Μ.Μ B | ΠΟΣ. B | ΤΙΜΗ A | ΤΙΜΗ B | ΕΚΠΤ. (€) | ΣΥΝΟΛΟ | Φ.Π.Α. (%)
 - ΠΡΟΙΟΝ holds 'code - Name (retail price) CY / barcode'; barcodes are piece barcodes.
 - Unit A is the selling piece ('Packet 20', 'Box 120'), so quantity A is already in pieces.
-  Unit B has been empty on every sample; if it is ever filled, the line is flagged red.
+- Unit B is a bigger unit ('Outer 5000': a box of Rizla booklets, S15310019903, Nov 2026), with its own
+  quantity and price (ΤΙΜΗ B). Its size in pieces isn't printed ('5000' counts papers, not booklets), so
+  it is a case like any other: staff are asked how many pieces, the price checks it, the answer is learned.
+  Both units filled on one line has never happened, so it goes to Zein.
 - ΤΙΜΗ A is per piece excl. VAT; ΣΥΝΟΛΟ is excl. VAT, after the discount in euros.
 """
 
@@ -22,13 +25,15 @@ COLUMNS = {
     "qty_a": r"^ΠOΣ\.? ?A$",
     "qty_b": r"^ΠOΣ\.? ?B$",
     "price_a": r"^TIMH ?A",
+    "price_b": r"^TIMH ?B",
     "product": r"[ΠN]POION|PRODUCT",
     "disc": r"^EK",
     "total": r"ΣYNOΛO|TOTAL",
     "vat": r"Φ|D\.N\.A|\(%\)",
 }
 REQUIRED = "qty_a"
-EDITABLE = {"qty_a": "ΠΟΣ. A (quantity)", "price_a": "ΤΙΜΗ A (price)", "disc": "ΕΚΠΤ. (discount €)", "total": "ΣΥΝΟΛΟ (total)"}
+EDITABLE = {"qty_a": "ΠΟΣ. A (quantity)", "price_a": "ΤΙΜΗ A (price)", "qty_b": "ΠΟΣ. B (quantity)",
+            "price_b": "ΤΙΜΗ B (price)", "disc": "ΕΚΠΤ. (discount €)", "total": "ΣΥΝΟΛΟ (total)"}
 NUMBER = [r"Document No:?\s*(S\d{8,})", r"(S\d{8,})\s*\(\s*[ΑA][ΡP]"]  # the layout differs between print runs
 DATE = [r"Date:?\s*(\d{2}/\d{2}/\d{4})", r"S\d{8,}\s*\([^)]*\)\s*(\d{2}/\d{2}/\d{4})"]
 TOTAL = [r"TOTAL EURO\s*(\d+[.,]\d{2})"]
@@ -45,6 +50,10 @@ def parse(result, source, page_index, corrections=None):
 
 def row_to_line(row) -> InvoiceLine | None:
     qty, price, total = (parse_number(row[k].text) for k in ("qty_a", "price_a", "total"))
+    qty_b = parse_number(row["qty_b"].text)
+    in_unit_b = bool(qty_b) and not qty
+    if in_unit_b:  # a bigger unit (an outer): quantity and price in unit B, pieces asked like a case
+        qty, price = qty_b, parse_number(row["price_b"].text)
     if qty is None and total is None:
         return None
     flags = []
@@ -54,9 +63,9 @@ def row_to_line(row) -> InvoiceLine | None:
     flags += [vat_flag] if vat_flag else []
     discount = parse_number(row["disc"].text) or 0.0  # euros for the whole line
 
-    if parse_number(row["qty_b"].text):
-        flags.append(Flag(RED, "quantity", "Quantity in unit B is filled in. That has never happened before; "
-                                           "check how many pieces this is.", ZEIN))
+    if qty_b and not in_unit_b:
+        flags.append(Flag(RED, "quantity", "Quantities in both unit A and unit B are filled in. That has never "
+                                           "happened before; check how many pieces this is.", ZEIN))
     if None in (qty, price, total):
         flags.append(base.unreadable_flag("Quantity, price or total"))
         qty, total = qty or 0, total or 0
@@ -67,7 +76,7 @@ def row_to_line(row) -> InvoiceLine | None:
     return InvoiceLine(
         line_no="", description=name, barcode=barcode,
         quantity=qty, amount_excl_vat=total, vat_rate=vat,
-        list_price_excl_vat=price, pieces_known=True, flags=flags,
+        list_price_excl_vat=price, pieces_known=not in_unit_b, flags=flags,
     )
 
 

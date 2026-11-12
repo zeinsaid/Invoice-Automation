@@ -167,6 +167,10 @@ def find_table(result: dict, columns: dict[str, str], required: str) -> list[dic
     The table is the first one whose header row has the `required` field. A table split by a page
     break (e.g. Cosmos prints two pages on one sheet) continues in later tables with the same
     number of columns and no header row of their own; their rows are added too.
+
+    Every field in `columns` is in every row: a column whose header wasn't found is empty. The scanner
+    sometimes merges two empty columns under one header ('Disc % Discount' on Pambos, Nov 2026), and an
+    empty cell is something every profile already handles; the line and total checks still apply.
     """
     words = _word_spans(result)
     tables = result.get("tables", [])
@@ -194,6 +198,9 @@ def find_table(result: dict, columns: dict[str, str], required: str) -> list[dic
             for row in _rows(later_grid, mapping, words, after=-1):
                 row["_header"] = rows[0]["_header"] if rows else Cell("", None)
                 rows.append(row)
+        for row in rows:
+            for name in columns:
+                row.setdefault(name, Cell("", None))
         return rows
     return []
 

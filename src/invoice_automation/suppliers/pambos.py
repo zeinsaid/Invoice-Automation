@@ -56,6 +56,12 @@ def adjust(invoice, text: str) -> None:
 
 
 def row_to_line(row) -> InvoiceLine | None:
+    code = row["code"].text.strip()
+    if not code or " " in code:
+        # Every item row has Pambos' one-word code (GKSPOD9). The summary box under the table has none
+        # ('Previous Balance 0'), and is read as more rows when the scanner merges the two empty discount
+        # columns ('Disc % Discount', IN2600007050): the line table then has as many columns as the box.
+        return None
     qty, price, total = (parse_number(row[k].text) for k in ("qty", "price", "total"))
     if qty is None and total is None:
         return None
@@ -82,5 +88,5 @@ def row_to_line(row) -> InvoiceLine | None:
         line_no="", description=name, barcode=barcode,
         quantity=qty, amount_excl_vat=total, vat_rate=vat,
         list_price_excl_vat=total / qty if qty else None, pieces_known=True,
-        supplier_code=row["code"].text.strip(), flags=flags,
+        supplier_code=code, flags=flags,
     )
