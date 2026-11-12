@@ -54,9 +54,10 @@
 <h2>When staff message you</h2>
 <ol>
   <li><b>"Contact Zein" error:</b> open <code>logs\error.log</code> and read the last entry (bottom of the file).</li>
-  <li><b>"Waiting for Zein":</b> run <code>Admin.bat</code> &rarr; 1 and answer the question, or take the invoice out to enter by hand. If the note says <b>"The tool hit an error on this invoice"</b>, the details are in <code>logs\error.log</code>; send them to Claude. Once the fix is installed (<code>Admin.bat</code> &rarr; 2), the invoice goes back to staff by itself. The other invoices were never held up.</li>
-  <li><b>"Scanned twice with the same result":</b> staff scanned an invoice again after "Scan again" and the lines still don't add up, the same way. So the tool is misreading it, not missing a page: send Claude the scan and the shop's <code>data\cache</code> and <code>data\state</code>. After the fix (<code>Admin.bat</code> &rarr; 2), the invoice goes back to staff by itself, with their answers. A "Scan again" invoice an update fixes comes back the same way. The report lists each one as <code>BACK</code>.</li>
+  <li><b>"Waiting for Zein":</b> run <code>Admin.bat</code> &rarr; 1 and answer the question, or take the invoice out to enter by hand. If the note says <b>"The tool hit an error on this invoice"</b>, the details are in <code>logs\error.log</code>; bring the shop files to Claude (below). Once the fix is installed (<code>Admin.bat</code> &rarr; 2), the invoice goes back to staff by itself. The other invoices were never held up.</li>
+  <li><b>"Scanned twice with the same result":</b> staff scanned an invoice again after "Scan again" and the lines still don't add up, the same way. So the tool is misreading it, not missing a page: bring the shop files to Claude (below). After the fix (<code>Admin.bat</code> &rarr; 2), the invoice goes back to staff by itself, with their answers. A "Scan again" invoice an update fixes comes back the same way. The report lists each one as <code>BACK</code>.</li>
   <li><b>What happened in a run:</b> <code>data\reports\</code>, newest file. It lists each invoice, what staff confirmed, cost changes, new items, what to upload, skipped and by-hand invoices, and notes about the PowerSoft export.</li>
+  <li><b>Bringing the shop files to Claude</b> (any problem, and the monthly check): copy <code>Admin only\data\</code>, <code>Admin only\logs\</code> and <code>Admin only\processed\</code> into the <code>maintenance</code> folder of the project on your PC, plus any new invoice or PowerSoft export. That is everything Claude needs; the scans and their readings are in those folders.</li>
   <li>A fix in the code: Claude pushes it to GitHub, then <code>Admin.bat</code> &rarr; 2.</li>
   <li><b>"Not for the shop":</b> lines staff left out (home, the restaurant) are in the report under their invoice, with the amount. The Purchase order total is lower than the paper by exactly those.</li>
 </ol>
@@ -80,7 +81,7 @@
 
 <h2>Monthly check of what was learned</h2>
 <p>A wrong staff answer ("Is it this item? YES" on the wrong flavour) is remembered and used from then on without a question.
-With the new export, also copy <code>Admin only\data\</code> to your PC and ask Claude to run
+With the new export, also bring the shop files (above) and ask Claude to run
 <code>scripts\check_learned.py</code> on it. It lists answers worth a look (names with different words, a better-fitting item,
 a cost far from PowerSoft's, a different size). Delete the wrong ones at the shop with <code>Admin.bat</code> &rarr; 5.
 It also lists invoices marked as uploaded whose costs never reached PowerSoft: upload their Excel from
@@ -93,6 +94,7 @@ offers that item instead of a new one. The Done screen then says <b>"Switch thes
 <h2>Other PowerSoft files</h2>
 <ul>
   <li><b>New supplier or category in PowerSoft?</b> Export the list again and replace <code>data\powersoft\suppliers.xlsx</code> or <code>categories.xlsx</code>, with the same file name and the same layout as now. The report warns if a supplier the tool reads has no supplier code.</li>
+  <li><b>A new supplier's invoices:</b> the tool can't read them until it has a profile for that supplier. Staff give the first invoice to Zein instead of scanning it. Bring it and the new <code>suppliers.xlsx</code> to Claude; after the update (<code>Admin.bat</code> &rarr; 2) and copying <code>suppliers.xlsx</code> into <code>data\powersoft\</code>, staff scan it as usual.</li>
   <li><b>Packs</b> (a non-storable item that takes N singles off stock): name it exactly like the single item plus <code>xN</code>, e.g. <code>KYKKOS WATER 500ML X12</code>. Then export again.</li>
   <li><code>data\flag_items.csv</code>: items that always get a question (single/pack pairs that are both storable).</li>
 </ul>

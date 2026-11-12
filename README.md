@@ -100,4 +100,4 @@ The tool needs the shop's PowerSoft item export (`data/powersoft/itemsList.csv`)
 
 ## Data and privacy
 
-Real invoices, supplier price lists and the shop's item data stay on the shop PC and Zein's computer, and are never committed (`data/` is git-ignored). The demo invoice is made up: the supplier and every price on it are fictional, and its new barcodes use the in-store range (200…), which no real product carries. The unit tests use made-up items only.
+Real invoices, supplier price lists and the shop's item data stay on the shop PC and Zein's computer, and are never committed (`data/` and `maintenance/`, where shop files are dropped for checks, are git-ignored). The demo invoice is made up: the supplier and every price on it are fictional, and its new barcodes use the in-store range (200…), which no real product carries. The unit tests use made-up items only.
