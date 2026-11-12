@@ -29,6 +29,5 @@ Thumbs.db
 CLAUDE.md
 TODO.md
 
-# Files brought over from the shop PC for checks (real data): never commit
-NEW/
-new/
+# Drop-off folder for files Zein brings from the shop PC (real data): never commit
+maintenance/
