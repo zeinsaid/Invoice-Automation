@@ -1,4 +1,4 @@
-from invoice_automation.layout import clean_text, ean_is_valid, normalise_barcode, parse_number
+from invoice_automation.layout import clean_text, ean_is_valid, find_table, normalise_barcode, parse_number
 
 
 def test_parse_number_formats():
@@ -29,3 +29,21 @@ def test_normalise_barcode():
     assert normalise_barcode("52130036125 44") == "5213003612544"  # wrapped onto two lines
     assert normalise_barcode("52018251n 1623") == "52018251"  # handwritten item code next to it
     assert normalise_barcode("") == ""
+
+
+def _table(rows):
+    cells = [{"rowIndex": r, "columnIndex": c, "content": t, "spans": []}
+             for r, row in enumerate(rows) for c, t in enumerate(row)]
+    return {"rowCount": len(rows), "columnCount": len(rows[0]), "cells": cells}
+
+
+def test_continuation_table_starts_with_a_line_and_summary_box_with_a_title():
+    # Cosmos prints two pages on one sheet: the second half has no header and continues the lines. A summary
+    # box with as many columns starts with a title row instead (Rainbow IN10012045, Nov 2026) and is not read.
+    columns = {"code": r"CODE", "qty": r"QTY", "net": r"NET"}
+    result = {"content": "", "pages": [{"words": []}], "tables": [
+        _table([["CODE", "QTY", "NET"], ["A1", "10", "41.53"]]),
+        _table([["B2", "5", "20.77"]]),
+        _table([["TOTAL ITEMS: 3", "", ""], ["0 - 30", "62.18", "11.82"]]),
+    ]}
+    assert [row["code"].text for row in find_table(result, columns, "net")] == ["A1", "B2"]

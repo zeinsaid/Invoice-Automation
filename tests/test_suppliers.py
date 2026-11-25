@@ -7,7 +7,7 @@ import pytest
 from invoice_automation.layout import without_handwriting
 from invoice_automation.model import ZEIN
 from invoice_automation.suppliers import (agrotis_pos, asian, athenites, base, cassandra, cocacola, fereos, hell,
-                                         identify, jawda, pambos, skipped_reason)
+                                         identify, jawda, pambos, rainbow, skipped_reason)
 
 
 def _page(rows, content="", styles=()):
@@ -89,6 +89,25 @@ def test_pambos_merged_discount_header_and_summary_box():
     assert [(l.supplier_code, l.quantity, l.amount_excl_vat, l.vat_rate, l.flags) for l in inv.lines] == [
         ("GKBDEVICE4", 10, 30.0, 19, [])]
     assert inv.computed_total == 35.70
+
+
+# --- Rainbow ---------------------------------------------------------------------------------------
+
+def test_rainbow_summary_box_with_eight_columns_is_not_a_line():
+    # IN10012045: a ticked box and a balance in the ageing analysis gave the summary box 8 columns, like the line
+    # table, and its numbers were read as a third line (VAT '62.18', to Zein).
+    lines = _page([["BARCODE", "ITEM CODE", "DESCRIPTION", "QTY", "RETAIL W/OUT VAT", "DISC %", "NET VALUE", "VAT"],
+                   ["5011385908558", "302001042", "MOUNTBOARD A1 BLACK", "10.0", "6.00", "35.00", "39.00", "19%"]])
+    summary = _page([["TOTAL ITEMS: 1 TOTAL QTY'S: 10", "", "", "", "", "", "", ""],
+                     ["Ageing Analysis", "", "VAT ANALYSIS", "", "", "INVOICE SUMMARY", "", ""],
+                     ["0 - 30", ":selected: 234.00", "19%", "39.00", "7.41", "60.00", "0.00% 0.00", "39.00"],
+                     ["", "", "", "", "", "TOTAL AMOUNT", "", "€46.41"]])
+    lines["tables"] += summary["tables"]
+    lines["content"] = "RAINBOW AGENCIES\nTOTAL AMOUNT €46.41"
+    inv = rainbow.parse(lines, "x.pdf", 0)
+    assert [(l.supplier_code, l.quantity, l.amount_excl_vat, l.vat_rate, l.flags) for l in inv.lines] == [
+        ("302001042", 10, 39.0, 19, [])]
+    assert not inv.flags
 
 
 # --- Fereos ----------------------------------------------------------------------------------------

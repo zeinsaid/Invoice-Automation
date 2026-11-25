@@ -166,7 +166,11 @@ def find_table(result: dict, columns: dict[str, str], required: str) -> list[dic
     `columns` maps our field names to regex patterns, matched against the latinised header text.
     The table is the first one whose header row has the `required` field. A table split by a page
     break (e.g. Cosmos prints two pages on one sheet) continues in later tables with the same
-    number of columns and no header row of their own; their rows are added too.
+    number of columns and no header row of their own; their rows are added too. Such a table must
+    start with an item line, which prints at least two numbers (a quantity and an amount). The
+    summary box under the lines starts with a title row instead ('Customer Balances | VAT Analysis',
+    'TOTAL ITEMS: 2'), and is skipped even when the scanner gives it as many columns as the line
+    table (Pambos and Rainbow, Nov 2026).
 
     Every field in `columns` is in every row: a column whose header wasn't found is empty. The scanner
     sometimes merges two empty columns under one header ('Disc % Discount' on Pambos, Nov 2026), and an
@@ -195,6 +199,8 @@ def find_table(result: dict, columns: dict[str, str], required: str) -> list[dic
             first = later_grid.get(min(later_grid), {}) if later_grid else {}
             if len(_header_columns(first, columns)) >= 3:
                 break  # another headed table, not a continuation
+            if sum(parse_number(cell["content"]) is not None for cell in first.values()) < 2:
+                continue  # starts with a title, not a line: a summary box
             for row in _rows(later_grid, mapping, words, after=-1):
                 row["_header"] = rows[0]["_header"] if rows else Cell("", None)
                 rows.append(row)
