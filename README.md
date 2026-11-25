@@ -12,7 +12,12 @@ Turns scanned supplier invoices into stock-upload files for **The Plug**, a 24/7
 
 Stock arrives with paper invoices from about 20 suppliers. To get it into the shop's stock system (PowerSoft), a staff member opened that supplier's Excel sheet, searched for each item, typed the quantity, deleted every empty row and uploaded the file. A wholesaler invoice has 40 to 60 lines. Every new product meant typing its name, barcode, category and cost by hand. Cases had to be converted to pieces by hand (2 cases of 24 cans = 48), and costs were rarely updated because checking them took even longer.
 
-**Estimate:** roughly 8 to 10 invoices a week, at 10 to 40 minutes each, is **about 2 to 3 hours of typing a week**. With the tool, staff answer the questions it can't settle alone: about 2 minutes for an invoice with 12 questions, and fewer each time, because every answer is remembered. That's **well under half an hour a week**. The tool logs the time spent on every invoice, so these estimates will be replaced with measured numbers.
+**Result: from about 3.5 hours to under 1 hour a week.**
+
+- **After (measured, first 5 weeks at the shop, 47 invoices):** about 10 invoices a week, 25 lines each. Staff spend about 4 minutes per invoice answering the tool's questions, plus a minute to scan: **under an hour a week**. Questions per line fell from 0.45 in the first two weeks to 0.13 in the fifth, because every answer is remembered. The wholesaler's invoices (about 50 lines each) take about 11 minutes, down from about 45 minutes of searching its Excel line by line. New items now go in complete and the same way every time (brand, category, supplier code), not just faster.
+- **Before (estimate, nothing was logged):** about **3.5 hours a week**: searching the wholesaler's long Excel for each of its ~130 lines a week (about 50 seconds a line), quicker typing for the smaller suppliers, about 15 new items a week typed by hand, and deleting the empty rows.
+
+<sub>The tool logs each invoice's time from its first question to done; a time over 20 minutes is counted as 20 (the window was left open).</sub>
 
 ## How it works
 
@@ -56,7 +61,7 @@ The tool runs on the shop's Windows PC, which resets its C: drive at every resta
 
 ## How it was built
 
-I designed and built this project, and made every decision in it: what to automate and what to leave to staff, the matching order, how packs are detected, what gets asked and what doesn't. I worked with [Claude Code](https://claude.com/claude-code) as my AI pair programmer, reviewing every change step by step. Every significant choice and its reasoning is in **[DECISIONS.md](DECISIONS.md)**: 34 decisions, from dropping an LLM step to the deployment design. The tool was tested on real invoices from every supplier it handles, and has been in use at the shop since October 2026.
+I designed and built this project, and made every decision in it: what to automate and what to leave to staff, the matching order, how packs are detected, what gets asked and what doesn't. I worked with [Claude Code](https://claude.com/claude-code) as my AI pair programmer, reviewing every change step by step. Every significant choice and its reasoning is in **[DECISIONS.md](DECISIONS.md)**: 35 decisions, from dropping an LLM step to the deployment design. The tool was tested on real invoices from every supplier it handles, and has been in use at the shop since October 2026.
 
 ## Repository layout
 
