@@ -195,3 +195,16 @@ def test_an_answer_whose_line_is_now_another_product_is_asked_again():
     assert entry.seen == {"0:4": "TEST GOLD"}
     entry.seen["0:4"] = "TEST RED"
     assert pipeline.drop_moved_answers(entry, inv) is True  # a typed-in correction: the pages are read again
+
+
+def test_a_barcode_long_item_code_is_written_as_text(tmp_path):
+    # Coca-Cola 5449000000439: written as a number, PowerSoft read it as '5.4490000004E012' and made a new item.
+    import openpyxl
+    from invoice_automation.output import OutputRow, write_invoice_excel
+    long_code = Item("5449000000439", "COLA 1.5 LTR", "5449000000439", 19, 1.80, 3.20, SUPPLIER, "", "", True)
+    short_code = Item("17", "FIZZ CAN 330ML", "1111111111116", 19, 0.50, 1.20, SUPPLIER, "", "", True)
+    path = tmp_path / "po.xlsx"
+    write_invoice_excel(path, [OutputRow(long_code, 24, 1.80), OutputRow(short_code, 6, 0.50)],
+                        Catalogue({}, {}, {}), SUPPLIER)
+    ws = openpyxl.load_workbook(path).active
+    assert [(ws[f"B{r}"].value, ws[f"C{r}"].value) for r in (2, 3)] == [("5449000000439", "5449000000439"), (17, 17)]

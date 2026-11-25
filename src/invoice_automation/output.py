@@ -7,7 +7,7 @@ import openpyxl
 from openpyxl.comments import Comment
 from openpyxl.styles import Font, PatternFill
 
-from .catalogue import Catalogue, Item
+from .catalogue import CODE_DIGITS, Catalogue, Item
 from .files import save_atomic
 from .model import ORANGE, RED, SEVERITY, YELLOW, Flag
 
@@ -48,7 +48,9 @@ def write_invoice_excel(path: Path, rows: list[OutputRow], catalogue: Catalogue,
 
     for r, row in enumerate(rows, start=2):
         item = row.item
-        code = int(item.code) if item.code.isdigit() else item.code
+        # A code goes in as a number, like PowerSoft's own files. A barcode-long one (Coca-Cola 5449000000439) goes in
+        # as text: as a number, PowerSoft read it as '5.4490000004E012' and made a new item (D-008 amendment).
+        code = int(item.code) if item.code.isdigit() and len(item.code) < CODE_DIGITS else item.code
         # A new item gets this supplier; an existing item keeps PowerSoft's details (the tool never edits them).
         item_supplier = supplier if item.local else item.supplier
         ws.append([
